@@ -216,7 +216,7 @@ function createSirenDataUri(): string | null {
 const ALERTED_ORDERS_STORAGE_KEY = 'fzp_alerted_orders';
 
 /**
- * Returns set of all order IDs that have already been alerted or known historically
+ * Returns set of all order IDs and codes that have already been alerted or known historically
  */
 export function getAlertedOrderIds(): Set<string> {
   if (typeof window === 'undefined') return new Set();
@@ -225,46 +225,77 @@ export function getAlertedOrderIds(): Set<string> {
     if (!raw) return new Set();
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return new Set(parsed.map(String));
+      return new Set(parsed.map((item) => String(item).trim()).filter(Boolean));
     }
   } catch {}
   return new Set();
 }
 
 /**
- * Marks a single order ID as alerted in persistent storage
+ * Marks a single order ID or code as alerted in persistent storage
  */
-export function markOrderAsAlerted(orderId: string | number): void {
-  if (!orderId || typeof window === 'undefined') return;
+export function markOrderAsAlerted(orderIdOrCode: string | number): void {
+  if (!orderIdOrCode || typeof window === 'undefined') return;
   try {
+    const key = String(orderIdOrCode).trim();
+    if (!key) return;
     const set = getAlertedOrderIds();
-    set.add(String(orderId));
-    const arr = Array.from(set).slice(-300);
+    set.add(key);
+    const arr = Array.from(set).slice(-500);
     localStorage.setItem(ALERTED_ORDERS_STORAGE_KEY, JSON.stringify(arr));
   } catch {}
 }
 
 /**
- * Marks multiple order IDs as alerted in persistent storage
+ * Marks multiple order IDs or codes as alerted in persistent storage
  */
-export function markOrdersAsAlerted(orderIds: (string | number)[]): void {
-  if (!orderIds || !orderIds.length || typeof window === 'undefined') return;
+export function markOrdersAsAlerted(orderIdsOrCodes: (string | number | undefined | null)[]): void {
+  if (!orderIdsOrCodes || !orderIdsOrCodes.length || typeof window === 'undefined') return;
   try {
     const set = getAlertedOrderIds();
-    orderIds.forEach((id) => {
-      if (id) set.add(String(id));
+    orderIdsOrCodes.forEach((id) => {
+      if (id !== undefined && id !== null) {
+        const key = String(id).trim();
+        if (key) set.add(key);
+      }
     });
-    const arr = Array.from(set).slice(-300);
+    const arr = Array.from(set).slice(-500);
     localStorage.setItem(ALERTED_ORDERS_STORAGE_KEY, JSON.stringify(arr));
   } catch {}
 }
 
 /**
- * Checks whether an order ID has already been alerted
+ * Marks an entire Order object (both id and code) as alerted
  */
-export function isOrderAlerted(orderId: string | number): boolean {
-  if (!orderId || typeof window === 'undefined') return false;
-  return getAlertedOrderIds().has(String(orderId));
+export function markOrderObjectAlerted(order: Partial<Order>): void {
+  if (!order || typeof window === 'undefined') return;
+  const keysToMark: string[] = [];
+  if (order.id) keysToMark.push(String(order.id).trim());
+  if (order.code) keysToMark.push(String(order.code).trim());
+  if (keysToMark.length > 0) {
+    markOrdersAsAlerted(keysToMark);
+  }
+}
+
+/**
+ * Checks whether an order ID or code has already been alerted
+ */
+export function isOrderAlerted(orderIdOrCode: string | number | undefined | null): boolean {
+  if (!orderIdOrCode || typeof window === 'undefined') return false;
+  const key = String(orderIdOrCode).trim();
+  if (!key) return false;
+  return getAlertedOrderIds().has(key);
+}
+
+/**
+ * Checks whether an order (by id OR code) has already been alerted
+ */
+export function isOrderObjectAlerted(order: Partial<Order>): boolean {
+  if (!order || typeof window === 'undefined') return false;
+  const alertedSet = getAlertedOrderIds();
+  if (order.id && alertedSet.has(String(order.id).trim())) return true;
+  if (order.code && alertedSet.has(String(order.code).trim())) return true;
+  return false;
 }
 
 /**

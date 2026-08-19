@@ -30,7 +30,9 @@ import {
   getAlertedOrderIds,
   markOrderAsAlerted,
   markOrdersAsAlerted,
+  markOrderObjectAlerted,
   isOrderAlerted,
+  isOrderObjectAlerted,
 } from '../utils/orderAlerts';
 import { cleanPhoneNumber, buildWhatsAppLink } from '../utils/whatsappHelper';
 import { getSWRCache, setSWRCache, isRecentLocalMutation } from '../utils/swrCache';
@@ -452,42 +454,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Processed order alert IDs to avoid duplicate alerts across refreshes
   const processedOrderAlertsRef = React.useRef<Set<string>>(new Set());
   const appInitTimestampRef = React.useRef<number>(Date.now());
+  const isBootstrapReadyRef = React.useRef<boolean>(false);
 
-  // Initialize immediately from persistent storage & initial orders state
+  // Initialize immediately from persistent storage, current orders state, and INITIAL_ORDERS
   if (processedOrderAlertsRef.current.size === 0) {
     const existingAlerted = getAlertedOrderIds();
     existingAlerted.forEach((id) => processedOrderAlertsRef.current.add(id));
     orders.forEach((ord) => {
-      if (ord?.id) {
-        processedOrderAlertsRef.current.add(String(ord.id));
-      }
+      if (ord?.id) processedOrderAlertsRef.current.add(String(ord.id).trim());
+      if (ord?.code) processedOrderAlertsRef.current.add(String(ord.code).trim());
+    });
+    INITIAL_ORDERS.forEach((ord) => {
+      if (ord?.id) processedOrderAlertsRef.current.add(String(ord.id).trim());
+      if (ord?.code) processedOrderAlertsRef.current.add(String(ord.code).trim());
     });
   }
 
   // Helper to trigger audio siren & kitchen thermal print for new online orders
   const triggerNewOnlineOrderAlert = (ord: Order) => {
     if (!ord || !ord.id) return;
-    const ordIdStr = String(ord.id);
+    const ordIdStr = String(ord.id).trim();
+    const ordCodeStr = ord.code ? String(ord.code).trim() : '';
 
     // If order was already alerted or is known in persistent storage, ignore
-    if (processedOrderAlertsRef.current.has(ordIdStr) || isOrderAlerted(ordIdStr)) {
+    if (
+      processedOrderAlertsRef.current.has(ordIdStr) ||
+      (ordCodeStr && processedOrderAlertsRef.current.has(ordCodeStr)) ||
+      isOrderAlerted(ordIdStr) ||
+      (ordCodeStr && isOrderAlerted(ordCodeStr)) ||
+      isOrderObjectAlerted(ord)
+    ) {
       return;
     }
 
-    // Immediately mark as processed in memory and local storage
+    // Immediately mark as processed in memory and persistent storage
     processedOrderAlertsRef.current.add(ordIdStr);
-    markOrderAsAlerted(ordIdStr);
+    if (ordCodeStr) processedOrderAlertsRef.current.add(ordCodeStr);
+    markOrderObjectAlerted(ord);
 
-    const isPdv = ord.type === 'pdv';
-    const isFinalized = ord.status === 'entregue' || ord.status === 'cancelado';
+    // If app is still bootstrapping or order is from before app initialization, ignore
+    if (!isBootstrapReadyRef.current) {
+      return;
+    }
 
-    // Historical order safeguard: If order was created prior to current session boot, do not alert
+    // Historical order safeguard: If order timestamp is earlier than or equal to current page boot, do not alert
     if (ord.createdAt) {
       const orderTimestamp = new Date(ord.createdAt).getTime();
-      if (!isNaN(orderTimestamp) && orderTimestamp < appInitTimestampRef.current - 90000) {
+      if (!isNaN(orderTimestamp) && orderTimestamp <= appInitTimestampRef.current) {
         return;
       }
     }
+
+    const isPdv = ord.type === 'pdv';
+    const isFinalized = ord.status === 'entregue' || ord.status === 'cancelado';
 
     if (!isPdv && !isFinalized) {
       // 1. Audio siren & auto print ticket for kitchen
@@ -504,6 +523,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     }
   };
+
+  // Enable live alerts after initial mount bootstrap window (3.5s)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      isBootstrapReadyRef.current = true;
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Real-Time Cross-Tab & Cross-Window Instant Sync (storage events & BroadcastChannel)
   useEffect(() => {
@@ -543,8 +570,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           try {
             const parsed: Order[] = JSON.parse(raw);
             parsed.forEach((ord) => {
-              const ordIdStr = String(ord.id || '');
-              if (ordIdStr && !processedOrderAlertsRef.current.has(ordIdStr) && !isOrderAlerted(ordIdStr)) {
+              const ordIdStr = String(ord.id || '').trim();
+              const ordCodeStr = ord.code ? String(ord.code).trim() : '';
+              if (!isBootstrapReadyRef.current) {
+                // Register silently during boot
+                if (ordIdStr) processedOrderAlertsRef.current.add(ordIdStr);
+                if (ordCodeStr) processedOrderAlertsRef.current.add(ordCodeStr);
+                markOrderObjectAlerted(ord);
+              } else if (ordIdStr && !processedOrderAlertsRef.current.has(ordIdStr) && !isOrderObjectAlerted(ord)) {
                 triggerNewOnlineOrderAlert(ord);
               }
             });
@@ -596,11 +629,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     if (orders && orders.length > 0) {
       orders.forEach((ord) => {
-        if (ord?.id) {
-          processedOrderAlertsRef.current.add(String(ord.id));
-        }
+        if (ord?.id) processedOrderAlertsRef.current.add(String(ord.id).trim());
+        if (ord?.code) processedOrderAlertsRef.current.add(String(ord.code).trim());
+        markOrderObjectAlerted(ord);
       });
-      markOrdersAsAlerted(orders.map((o) => o.id));
     }
   }, []);
 
@@ -629,15 +661,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (supOrders && supOrders.length > 0) {
           // Pre-seed all existing remote orders so they NEVER trigger false alerts on page load/refresh
           supOrders.forEach((o) => {
-            if (o?.id) {
-              processedOrderAlertsRef.current.add(String(o.id));
-            }
+            if (o?.id) processedOrderAlertsRef.current.add(String(o.id).trim());
+            if (o?.code) processedOrderAlertsRef.current.add(String(o.code).trim());
+            markOrderObjectAlerted(o);
           });
-          markOrdersAsAlerted(supOrders.map((o) => o.id));
           setOrders(supOrders);
         }
+        isBootstrapReadyRef.current = true;
       } catch (err) {
         // Fallback to local storage
+        isBootstrapReadyRef.current = true;
       }
     }
     loadFromSupabase();
@@ -652,12 +685,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const interval = setInterval(async () => {
       try {
+        if (!isBootstrapReadyRef.current) return;
         const supOrders = await syncOrdersFromSupabase();
         if (supOrders && supOrders.length > 0) {
           let hasNewOrders = false;
           supOrders.forEach((ord) => {
-            const ordIdStr = String(ord.id || '');
-            if (ordIdStr && !processedOrderAlertsRef.current.has(ordIdStr) && !isOrderAlerted(ordIdStr)) {
+            const ordIdStr = String(ord.id || '').trim();
+            const ordCodeStr = ord.code ? String(ord.code).trim() : '';
+            const alreadyKnown =
+              (ordIdStr && processedOrderAlertsRef.current.has(ordIdStr)) ||
+              (ordCodeStr && processedOrderAlertsRef.current.has(ordCodeStr)) ||
+              isOrderObjectAlerted(ord);
+
+            if (!alreadyKnown) {
               hasNewOrders = true;
               triggerNewOnlineOrderAlert(ord);
             }
@@ -1210,7 +1250,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Trava de segurança contra disparo duplicado de alerta
     processedOrderAlertsRef.current.add(newOrder.id);
-    markOrderAsAlerted(newOrder.id);
+    if (newOrder.code) processedOrderAlertsRef.current.add(newOrder.code);
+    markOrderObjectAlerted(newOrder);
 
     setOrders((prev) => [newOrder, ...prev]);
     upsertOrderToSupabase(newOrder).catch(() => {});

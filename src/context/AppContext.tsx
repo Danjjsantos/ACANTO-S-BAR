@@ -420,16 +420,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [users, setUsers] = useState<AppUser[]>(() => loadFromStorage('fzp_users', INITIAL_USERS));
 
   const [currentUser, setCurrentUser] = useState<AppUser | null>(() => {
-    const saved = localStorage.getItem('fzp_current_user');
-    if (saved) {
-      try {
+    try {
+      const isExplicitlyLoggedOut = localStorage.getItem('fzp_user_logged_out');
+      if (isExplicitlyLoggedOut === 'true') {
+        return null;
+      }
+      const saved = localStorage.getItem('fzp_current_user');
+      if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.id) return parsed;
-      } catch {}
-    }
-    const isExplicitlyLoggedOut = localStorage.getItem('fzp_user_logged_out');
-    if (isExplicitlyLoggedOut === 'true') return null;
-    return INITIAL_USERS[0] || null;
+      }
+    } catch {}
+    // If not logged in or logged off, ALWAYS require login PIN/password
+    return null;
   });
 
   const [settings, setSettings] = useState<StoreSettings>(() => loadFromStorage('fzp_settings', INITIAL_STORE_SETTINGS));
@@ -741,7 +744,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       safeSetItem('fzp_current_user', JSON.stringify(currentUser));
       try { localStorage.removeItem('fzp_user_logged_out'); } catch {}
     } else {
-      try { localStorage.removeItem('fzp_current_user'); } catch {}
+      try {
+        localStorage.removeItem('fzp_current_user');
+        localStorage.setItem('fzp_user_logged_out', 'true');
+      } catch {}
     }
   }, [currentUser]);
 
@@ -775,6 +781,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: 'PIN de acesso incorreto. Tente novamente.' };
     }
 
+    try {
+      localStorage.removeItem('fzp_user_logged_out');
+      localStorage.setItem('fzp_current_user', JSON.stringify(found));
+    } catch {}
+
     setCurrentUser(found);
     setViewMode('admin');
 
@@ -792,12 +803,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logoutUser = () => {
+    try {
+      localStorage.removeItem('fzp_current_user');
+      localStorage.setItem('fzp_user_logged_out', 'true');
+    } catch {}
     setCurrentUser(null);
-    try { localStorage.removeItem('fzp_current_user'); } catch {}
     setViewMode('admin');
     addToast({
       title: 'Sessão encerrada',
-      message: 'Sua sessão foi encerrada. Para acessar a área de administração novamente, informe o login e senha/PIN.',
+      message: 'Sua sessão foi encerrada. Para acessar a área de administração novamente, informe o PIN ou senha de acesso.',
       type: 'info',
     });
   };

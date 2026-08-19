@@ -1,5 +1,5 @@
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
-import { Product, Category, Customer, Order, Table, Comanda, StoreSettings } from '../types';
+import { Product, Category, Customer, Order, Table, Comanda, StoreSettings, AppUser, UserRole } from '../types';
 
 // Helper to safely parse JSON
 function safeParse<T>(data: any, fallback: T): T {
@@ -294,6 +294,22 @@ export async function upsertOrderToSupabase(order: Order): Promise<boolean> {
   }
 }
 
+export async function deleteOrderFromSupabase(id: string): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await supabase.from('orders').delete().eq('id', id);
+    if (error) {
+      console.error('[Supabase Delete Error - Order]:', error.message);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ==========================================
 // TABLES
 // ==========================================
@@ -556,6 +572,98 @@ export async function deleteDriverFromSupabase(id: string): Promise<boolean> {
 }
 
 // ==========================================
+// USERS (ADMINS & GARÇONS)
+// ==========================================
+export async function syncUsersFromSupabase(): Promise<AppUser[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  try {
+    let { data, error } = await supabase.from('app_users').select('*').order('name');
+    if (error && (error.code === 'PGRST205' || error.message?.includes('does not exist'))) {
+      const fallbackRes = await supabase.from('users').select('*').order('name');
+      if (!fallbackRes.error) {
+        data = fallbackRes.data;
+        error = null;
+      }
+    }
+    if (error) {
+      console.warn('[Supabase Sync Error - Users]:', error.message);
+      return null;
+    }
+    if (!data) return [];
+
+    return data.map((item: any) => ({
+      id: String(item.id),
+      name: item.name || '',
+      email: item.email || '',
+      role: (item.role === 'admin' ? 'admin' : 'garcom') as UserRole,
+      pin: String(item.pin || '1234'),
+      status: (item.status === 'inativo' ? 'inativo' : 'ativo') as 'ativo' | 'inativo',
+      phone: item.phone || undefined,
+      avatarEmoji: item.avatar_emoji || undefined,
+      avatarUrl: item.avatar_url || undefined,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+export async function upsertUserToSupabase(user: AppUser): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+
+  try {
+    const payload = {
+      id: user.id,
+      name: user.name,
+      email: user.email || '',
+      role: user.role,
+      pin: user.pin,
+      status: user.status || 'ativo',
+      phone: user.phone || null,
+      avatar_emoji: user.avatarEmoji || null,
+      avatar_url: user.avatarUrl || null,
+    };
+
+    let { error } = await supabase.from('app_users').upsert(payload);
+    if (error && (error.code === 'PGRST205' || error.message?.includes('does not exist'))) {
+      const fallbackRes = await supabase.from('users').upsert(payload);
+      error = fallbackRes.error;
+    }
+
+    if (error) {
+      console.error('[Supabase Upsert Error - User]:', error.message);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteUserFromSupabase(id: string): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase) return false;
+
+  try {
+    let { error } = await supabase.from('app_users').delete().eq('id', id);
+    if (error && (error.code === 'PGRST205' || error.message?.includes('does not exist'))) {
+      const fallbackRes = await supabase.from('users').delete().eq('id', id);
+      error = fallbackRes.error;
+    }
+
+    if (error) {
+      console.error('[Supabase Delete Error - User]:', error.message);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ==========================================
 // STORE SETTINGS
 // ==========================================
 export async function syncStoreSettingsFromSupabase(): Promise<StoreSettings | null> {
@@ -661,6 +769,7 @@ export async function exportAllDataToSupabase(data: {
   comandas?: Comanda[];
   customers?: Customer[];
   orders?: Order[];
+  users?: AppUser[];
 }): Promise<{ success: boolean; count: number; error?: string }> {
   if (!isSupabaseConfigured()) {
     return { success: false, count: 0, error: 'Supabase não está configurado.' };
@@ -705,6 +814,12 @@ export async function exportAllDataToSupabase(data: {
     if (data.orders) {
       for (const ord of data.orders) {
         await upsertOrderToSupabase(ord);
+        totalUpserted++;
+      }
+    }
+    if (data.users) {
+      for (const usr of data.users) {
+        await upsertUserToSupabase(usr);
         totalUpserted++;
       }
     }

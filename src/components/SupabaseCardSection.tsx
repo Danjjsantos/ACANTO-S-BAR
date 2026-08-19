@@ -33,6 +33,7 @@ export const SupabaseCardSection: React.FC = () => {
     comandas,
     customers,
     orders,
+    users,
     addToast,
   } = useApp();
 
@@ -107,6 +108,7 @@ export const SupabaseCardSection: React.FC = () => {
         comandas,
         customers,
         orders,
+        users,
       });
 
       if (res.success) {
@@ -265,6 +267,19 @@ CREATE TABLE IF NOT EXISTS public.store_settings (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS public.app_users (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT,
+    role TEXT NOT NULL DEFAULT 'garcom',
+    pin TEXT NOT NULL DEFAULT '1234',
+    status TEXT NOT NULL DEFAULT 'ativo',
+    phone TEXT,
+    avatar_emoji TEXT,
+    avatar_url TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
@@ -274,6 +289,7 @@ ALTER TABLE public.comandas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.waiters ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.drivers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.store_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.app_users ENABLE ROW LEVEL SECURITY;
 
 DO $$
 BEGIN
@@ -303,6 +319,9 @@ BEGIN
 
     DROP POLICY IF EXISTS "Public Full Access StoreSettings" ON public.store_settings;
     CREATE POLICY "Public Full Access StoreSettings" ON public.store_settings FOR ALL USING (true) WITH CHECK (true);
+
+    DROP POLICY IF EXISTS "Public Full Access AppUsers" ON public.app_users;
+    CREATE POLICY "Public Full Access AppUsers" ON public.app_users FOR ALL USING (true) WITH CHECK (true);
 END $$;`;
 
   const handleCopySql = () => {

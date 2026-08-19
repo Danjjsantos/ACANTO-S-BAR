@@ -8,6 +8,7 @@ import {
   upsertCustomerToSupabase,
   deleteCustomerFromSupabase,
   upsertOrderToSupabase,
+  deleteOrderFromSupabase,
   upsertTableToSupabase,
   deleteTableFromSupabase,
   upsertComandaToSupabase,
@@ -16,6 +17,9 @@ import {
   deleteWaiterFromSupabase,
   upsertDriverToSupabase,
   deleteDriverFromSupabase,
+  upsertUserToSupabase,
+  deleteUserFromSupabase,
+  syncUsersFromSupabase,
   syncCategoriesFromSupabase,
   syncProductsFromSupabase,
   syncOrdersFromSupabase,
@@ -641,7 +645,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let isMounted = true;
     async function loadFromSupabase() {
       try {
-        const [supSettings, supCategories, supProducts, supTables, supComandas, supCustomers, supOrders] = await Promise.all([
+        const [supSettings, supCategories, supProducts, supTables, supComandas, supCustomers, supOrders, supUsers] = await Promise.all([
           syncStoreSettingsFromSupabase(),
           syncCategoriesFromSupabase(),
           syncProductsFromSupabase(),
@@ -649,6 +653,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           syncComandasFromSupabase(),
           syncCustomersFromSupabase(),
           syncOrdersFromSupabase(),
+          syncUsersFromSupabase(),
         ]);
 
         if (!isMounted) return;
@@ -658,14 +663,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (supTables && supTables.length > 0) setTables(supTables);
         if (supComandas && supComandas.length > 0) setComandas(supComandas);
         if (supCustomers && supCustomers.length > 0) setCustomers(supCustomers);
+        if (supUsers && supUsers.length > 0) setUsers(supUsers);
         if (supOrders && supOrders.length > 0) {
+          // Read set of deleted order IDs to prevent deleted orders from re-appearing
+          let deletedIds = new Set<string>();
+          try {
+            const raw = localStorage.getItem('fzp_deleted_orders');
+            if (raw) deletedIds = new Set(JSON.parse(raw));
+          } catch {}
+
+          const validOrders = supOrders.filter((o) => o?.id && !deletedIds.has(String(o.id).trim()));
+
           // Pre-seed all existing remote orders so they NEVER trigger false alerts on page load/refresh
-          supOrders.forEach((o) => {
+          validOrders.forEach((o) => {
             if (o?.id) processedOrderAlertsRef.current.add(String(o.id).trim());
             if (o?.code) processedOrderAlertsRef.current.add(String(o.code).trim());
             markOrderObjectAlerted(o);
           });
-          setOrders(supOrders);
+          setOrders(validOrders);
         }
         isBootstrapReadyRef.current = true;
       } catch (err) {
@@ -688,8 +703,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!isBootstrapReadyRef.current) return;
         const supOrders = await syncOrdersFromSupabase();
         if (supOrders && supOrders.length > 0) {
+          let deletedIds = new Set<string>();
+          try {
+            const raw = localStorage.getItem('fzp_deleted_orders');
+            if (raw) deletedIds = new Set(JSON.parse(raw));
+          } catch {}
+
+          const validOrders = supOrders.filter((o) => o?.id && !deletedIds.has(String(o.id).trim()));
           let hasNewOrders = false;
-          supOrders.forEach((ord) => {
+          validOrders.forEach((ord) => {
             const ordIdStr = String(ord.id || '').trim();
             const ordCodeStr = ord.code ? String(ord.code).trim() : '';
             const alreadyKnown =
@@ -704,8 +726,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           });
 
           if (hasNewOrders) {
-            setOrders(supOrders);
-            writeStorageSilent('fzp_orders', JSON.stringify(supOrders));
+            setOrders(validOrders);
+            writeStorageSilent('fzp_orders', JSON.stringify(validOrders));
           }
         }
       } catch {}
@@ -786,6 +808,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `usr-${Date.now()}`,
     };
     setUsers((prev) => [newUser, ...prev]);
+    upsertUserToSupabase(newUser).catch(() => {});
     addToast({
       title: 'Usuário criado com sucesso',
       message: `Novo ${userData.role === 'admin' ? 'Administrador' : 'Garçom'} adicionado: ${userData.name}`,
@@ -801,6 +824,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (currentUser?.id === id) {
             setCurrentUser(updated);
           }
+          upsertUserToSupabase(updated).catch(() => {});
           return updated;
         }
         return u;
@@ -824,6 +848,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setUsers((prev) => prev.filter((u) => u.id !== id));
+    deleteUserFromSupabase(id).catch(() => {});
 
     if (currentUser?.id === id) {
       setCurrentUser(null);
@@ -1355,7 +1380,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteOrder = (orderId: string) => {
-    setOrders((prev) => prev.filter((ord) => ord.id !== orderId));
+    setOrders((prev) => {
+      const updated = prev.filter((ord) => ord.id !== orderId);
+      writeStorageSilent('fzp_orders', JSON.stringify(updated));
+      return updated;
+    });
+    try {
+      const raw = localStorage.getItem('fzp_deleted_orders');
+      const set = new Set(raw ? JSON.parse(raw) : []);
+      set.add(String(orderId).trim());
+      localStorage.setItem('fzp_deleted_orders', JSON.stringify(Array.from(set).slice(-500)));
+    } catch {}
+    deleteOrderFromSupabase(orderId).catch(() => {});
   };
 
   // Tables

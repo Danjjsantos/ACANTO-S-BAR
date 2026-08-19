@@ -1,0 +1,6 @@
+{
+  "name": "BAR DO ACANTO - PDV & Cardápio",
+  "description": "Sistema completo de vendas para BAR DO ACANTO com cardápio digital, PDV balcão, gestão de mesas e comandas e integração WhatsApp.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

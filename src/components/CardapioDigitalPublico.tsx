@@ -24,6 +24,7 @@ import {
   Link,
   AlertTriangle,
   ExternalLink,
+  Lock,
 } from 'lucide-react';
 
 export const CardapioDigitalPublico: React.FC = () => {
@@ -297,8 +298,19 @@ export const CardapioDigitalPublico: React.FC = () => {
         
         <div className="relative max-w-2xl mx-auto px-4 pt-4">
           <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/20 text-white text-[11px] font-bold backdrop-blur-md border border-white/10">
-              <span>📱 Cardápio Digital Online</span>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/20 text-white text-[11px] font-bold backdrop-blur-md border border-white/10">
+                <span>📱 Cardápio Digital Online</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewMode('admin')}
+                className="hidden sm:inline-flex items-center gap-1 text-[10px] font-extrabold text-orange-100 hover:text-white px-2.5 py-1 rounded-full bg-black/25 hover:bg-black/40 border border-white/15 transition cursor-pointer"
+                title="Acessar Plataforma do Administrador (Exige Senha)"
+              >
+                <Lock className="w-3 h-3 text-amber-300" />
+                <span>Área Admin</span>
+              </button>
             </div>
             <span
               className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase shadow-xs ${
@@ -440,6 +452,26 @@ export const CardapioDigitalPublico: React.FC = () => {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Public Cardápio Footer */}
+        <div className="mt-12 pt-8 border-t border-slate-200/80 text-center space-y-2.5 pb-8">
+          <p className="text-xs font-extrabold text-slate-700">
+            {settings.name} — Cardápio Digital Online
+          </p>
+          <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+            {settings.address || 'Atendimento presencial no salão e delivery com pedidos via WhatsApp.'}
+          </p>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => setViewMode('admin')}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-200/80 hover:bg-slate-300 text-slate-700 hover:text-slate-900 text-[11px] font-extrabold transition cursor-pointer shadow-2xs"
+            >
+              <Lock className="w-3.5 h-3.5 text-slate-500" />
+              <span>Acesso Restrito / Área Administrativa</span>
+            </button>
+          </div>
         </div>
 
       </div>

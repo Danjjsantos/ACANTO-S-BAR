@@ -421,17 +421,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [currentUser, setCurrentUser] = useState<AppUser | null>(() => {
     try {
-      const isExplicitlyLoggedOut = localStorage.getItem('fzp_user_logged_out');
-      if (isExplicitlyLoggedOut === 'true') {
-        return null;
-      }
-      const saved = localStorage.getItem('fzp_current_user');
-      if (saved) {
-        const parsed = JSON.parse(saved);
+      // Clean legacy localStorage credentials so they cannot leak across windows/browsers
+      localStorage.removeItem('fzp_current_user');
+
+      // Only allow session if explicitly authenticated in current browser session
+      const sessionRaw = sessionStorage.getItem('fzp_admin_session');
+      if (sessionRaw) {
+        const parsed = JSON.parse(sessionRaw);
         if (parsed && parsed.id) return parsed;
       }
     } catch {}
-    // If not logged in or logged off, ALWAYS require login PIN/password
+    // If not authenticated in this session, ALWAYS require login & password/PIN
     return null;
   });
 
@@ -741,10 +741,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     if (currentUser) {
-      safeSetItem('fzp_current_user', JSON.stringify(currentUser));
-      try { localStorage.removeItem('fzp_user_logged_out'); } catch {}
+      try {
+        sessionStorage.setItem('fzp_admin_session', JSON.stringify(currentUser));
+        localStorage.removeItem('fzp_current_user');
+        localStorage.removeItem('fzp_user_logged_out');
+      } catch {}
     } else {
       try {
+        sessionStorage.removeItem('fzp_admin_session');
         localStorage.removeItem('fzp_current_user');
         localStorage.setItem('fzp_user_logged_out', 'true');
       } catch {}
@@ -752,38 +756,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser]);
 
   const loginUser = (identifier: string, pinInput?: string): { success: boolean; message?: string } => {
-    const cleanId = identifier.trim().toLowerCase();
+    const cleanId = (identifier || '').trim().toLowerCase();
     const cleanPin = (pinInput || '').trim();
 
-    let found = users.find(
+    if (!cleanId) {
+      return { success: false, message: 'Por favor, informe seu e-mail ou nome de usuário.' };
+    }
+
+    if (!cleanPin) {
+      return { success: false, message: 'Por favor, digite a senha ou PIN de acesso.' };
+    }
+
+    const found = users.find(
       (u) =>
         u.email.toLowerCase() === cleanId ||
         u.id.toLowerCase() === cleanId ||
         u.name.toLowerCase() === cleanId
     );
 
-    if (!found && !pinInput && cleanId) {
-      found = users.find((u) => u.pin === cleanId);
-    }
-
     if (!found) {
-      return { success: false, message: 'Usuário não encontrado. Verifique os dados inseridos.' };
+      return { success: false, message: 'Usuário não encontrado. Verifique seu login.' };
     }
 
     if (found.status === 'inativo') {
       return { success: false, message: 'Usuário está inativo. Fale com o gerente ou administrador.' };
     }
 
-    const requiredPin = found.pin;
-    const providedPin = pinInput !== undefined && pinInput !== '' ? cleanPin : cleanId;
+    const requiredPin = (found.pin || '').trim();
 
-    if (requiredPin !== providedPin && found.pin !== providedPin) {
-      return { success: false, message: 'PIN de acesso incorreto. Tente novamente.' };
+    if (!requiredPin || requiredPin !== cleanPin) {
+      return { success: false, message: 'Senha ou PIN de acesso incorreto. Tente novamente.' };
     }
 
     try {
+      sessionStorage.setItem('fzp_admin_session', JSON.stringify(found));
+      localStorage.removeItem('fzp_current_user');
       localStorage.removeItem('fzp_user_logged_out');
-      localStorage.setItem('fzp_current_user', JSON.stringify(found));
     } catch {}
 
     setCurrentUser(found);
@@ -804,6 +812,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const logoutUser = () => {
     try {
+      sessionStorage.removeItem('fzp_admin_session');
       localStorage.removeItem('fzp_current_user');
       localStorage.setItem('fzp_user_logged_out', 'true');
     } catch {}
@@ -811,7 +820,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setViewMode('admin');
     addToast({
       title: 'Sessão encerrada',
-      message: 'Sua sessão foi encerrada. Para acessar a área de administração novamente, informe o PIN ou senha de acesso.',
+      message: 'Sua sessão foi encerrada. Para acessar a área do administrador, informe login e senha.',
       type: 'info',
     });
   };

@@ -25,6 +25,7 @@ interface LocalPrinterSectionProps {
 }
 
 const POPULAR_PRINTER_MODELS = [
+  'POS-80 (Térmica 80mm - Padrão)',
   'Elgin i9 / i7',
   'Bematech MP-4200 TH',
   'Epson TM-T20X / TM-T88',
@@ -51,7 +52,7 @@ export const LocalPrinterSection: React.FC<LocalPrinterSectionProps> = ({ form, 
   const [testPrinting, setTestPrinting] = useState(false);
 
   const printerName = form.printerName || 'Impressora Balcão / Caixa';
-  const printerModel = form.printerModel || 'Elgin i9 / Bematech MP-4200';
+  const printerModel = form.printerModel || 'POS-80 (Térmica 80mm - Padrão)';
   const printerLocation = form.printerLocation || 'Balcão de Atendimento';
   const printerInterface = form.printerInterface || 'padrao_sistema';
   const paperWidth = form.thermalPaperWidth || '80mm';
@@ -74,8 +75,8 @@ export const LocalPrinterSection: React.FC<LocalPrinterSectionProps> = ({ form, 
     setTestPrinting(true);
 
     const testContainer = document.createElement('div');
-    testContainer.id = 'fzp-printer-test-container';
-    testContainer.className = 'fixed inset-0 bg-white z-[99999] flex flex-col items-center justify-start p-4 text-black font-mono';
+    testContainer.id = 'thermal-print-portal';
+    testContainer.className = 'printable-thermal-slip paper-80mm font-mono text-black';
     testContainer.style.backgroundColor = '#ffffff';
     testContainer.style.color = '#000000';
 
@@ -216,7 +217,7 @@ export const LocalPrinterSection: React.FC<LocalPrinterSectionProps> = ({ form, 
             Marca / Modelo Térmico:
           </label>
           <select
-            value={form.printerModel || 'Elgin i9 / Bematech MP-4200'}
+            value={form.printerModel || 'POS-80 (Térmica 80mm - Padrão)'}
             onChange={(e) => setForm({ ...form, printerModel: e.target.value })}
             className="w-full text-xs font-bold bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 focus:bg-white focus:border-orange-500 focus:outline-hidden transition"
           >

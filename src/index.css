@@ -15,60 +15,147 @@
   background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
 }
 
-/* Thermal & Full Report Printing Styles */
+/* =========================================================
+   AIRTIGHT THERMAL PRINTING SYSTEM (POS-80 / 80mm DEFAULT)
+   Enforces STRICT SINGLE PAGE (1 via) printing on thermal roll
+   printers. Completely eliminates blank pages / 6-page bugs.
+   ========================================================= */
 @media print {
-  /* Set zero margins so thermal roll printers do not feed extra blank pages or split into multiple vias */
+  /* Default thermal page geometry: POS-80 (80mm continuous roll, zero margin) */
   @page {
+    size: 80mm auto;
     margin: 0mm !important;
-    size: auto;
+  }
+
+  @page :left {
+    margin: 0mm !important;
+  }
+
+  @page :right {
+    margin: 0mm !important;
+  }
+
+  /* Universal print resets */
+  *,
+  *::before,
+  *::after {
+    text-shadow: none !important;
+    box-shadow: none !important;
   }
 
   html,
   body {
     background: #ffffff !important;
     color: #000000 !important;
-    font-size: 11pt;
     margin: 0 !important;
     padding: 0 !important;
-    width: 100% !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
-  /* Hide app navigation header, sidebar, toast containers and elements with print:hidden or no-print */
+  /* Hide app navigation header, sidebar, toast notifications, modals and standard print:hidden */
   header,
   aside,
+  footer,
+  nav,
   .no-print,
   .print\:hidden {
     display: none !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
   }
 
-  main {
-    padding: 0 !important;
+  /* 
+   * CRITICAL FIX FOR 6-PAGE BUG:
+   * When thermal printing is active (via #thermal-print-portal or #fzp-printer-test-container):
+   * We COMPLETELY REMOVE #root from the print layout using `display: none !important`.
+   * This collapses the 4000px height of the background application to 0px, ensuring
+   * ONLY the exact thermal ticket is rendered, producing strictly 1 page!
+   */
+  body:has(#thermal-print-portal) #root,
+  body:has(#fzp-printer-test-container) #root {
+    display: none !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
     margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Size html and body strictly to 80mm during thermal print */
+  body:has(#thermal-print-portal),
+  body:has(#fzp-printer-test-container),
+  body:has(.printable-thermal-slip) {
+    width: 80mm !important;
+    max-width: 80mm !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
     overflow: visible !important;
-    width: 100% !important;
-    max-width: 100% !important;
   }
 
-  /* THERMAL PAPER SLIP OVERRIDE (Active when .printable-thermal-slip exists) */
-  body:has(.printable-thermal-slip) * {
-    visibility: hidden;
+  html:has(#thermal-print-portal),
+  html:has(#fzp-printer-test-container),
+  html:has(.printable-thermal-slip) {
+    width: 80mm !important;
+    max-width: 80mm !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
   }
 
-  body:has(.printable-thermal-slip) .printable-thermal-slip,
-  body:has(.printable-thermal-slip) .printable-thermal-slip * {
-    visibility: visible !important;
+  /* Dedicated thermal print portal container rendered directly on body */
+  #thermal-print-portal {
+    display: block !important;
+    width: 80mm !important;
+    max-width: 80mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    overflow: visible !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-before: avoid !important;
+    break-before: avoid !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  #thermal-print-portal.paper-58mm,
+  .printable-thermal-slip.paper-58mm {
+    width: 58mm !important;
+    max-width: 58mm !important;
+    font-size: 10px !important;
+    line-height: 1.25 !important;
+  }
+
+  #thermal-print-portal.paper-80mm,
+  .printable-thermal-slip.paper-80mm {
+    width: 80mm !important;
+    max-width: 80mm !important;
+    font-size: 12px !important;
+    line-height: 1.3 !important;
   }
 
   /* 
    * Strict monochrome black font rule:
    * Enforce 100% solid black for all text, borders and lines without any color differentiation
    */
+  #thermal-print-portal,
+  #thermal-print-portal *,
   .printable-thermal-slip,
   .printable-thermal-slip *,
   #printable-bill,
   #printable-bill *,
-  .printable-receipt,
-  .printable-receipt * {
+  #fzp-printer-test-container,
+  #fzp-printer-test-container * {
     color: #000000 !important;
     -webkit-text-fill-color: #000000 !important;
     border-color: #000000 !important;
@@ -79,14 +166,12 @@
   }
 
   .printable-thermal-slip {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
-    margin: 0 !important;
+    display: block !important;
+    margin: 0 auto !important;
     padding: 2mm 3mm !important;
     background: #ffffff !important;
     color: #000000 !important;
-    font-family: 'Courier New', Courier, monospace, monospace !important;
+    font-family: 'Courier New', Courier, monospace !important;
     box-shadow: none !important;
     border: none !important;
 
@@ -101,21 +186,7 @@
     max-height: none !important;
   }
 
-  .printable-thermal-slip.paper-58mm {
-    width: 58mm !important;
-    max-width: 58mm !important;
-    font-size: 10px !important;
-    line-height: 1.25 !important;
-  }
-
-  .printable-thermal-slip.paper-80mm {
-    width: 80mm !important;
-    max-width: 80mm !important;
-    font-size: 12px !important;
-    line-height: 1.3 !important;
-  }
-
-  /* Full Page Printable Reports styling */
+  /* Full Page Printable Reports styling (e.g. FaturamentoView) */
   .printable-report-card {
     break-inside: avoid;
     box-shadow: none !important;
@@ -139,4 +210,3 @@
     color: #000000 !important;
   }
 }
-

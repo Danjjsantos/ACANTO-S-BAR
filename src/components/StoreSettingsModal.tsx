@@ -4,6 +4,7 @@ import { Store, Save, QrCode as PixIcon, Phone, MapPin, Clock, DollarSign, Image
 import { ImageUploader } from './ImageUploader';
 import { PixQrCodeDisplay } from './PixQrCodeDisplay';
 import { SupabaseCardSection } from './SupabaseCardSection';
+import { LocalPrinterSection } from './LocalPrinterSection';
 import { getPublicCardapioUrl, getAdminStoreUrl, openWhatsAppLink } from '../utils/whatsappHelper';
 import { DEFAULT_WEEKLY_SCHEDULE, TIMEZONE_OPTIONS, getStoreCurrentTime, formatDayScheduleText } from '../utils/operatingHoursHelper';
 
@@ -820,41 +821,8 @@ export const StoreSettingsModal: React.FC = () => {
           />
         </div>
 
-        {/* Thermal Print Settings */}
-        <div className="p-3.5 bg-orange-50/60 border border-orange-200 rounded-2xl space-y-2">
-          <label className="block text-xs font-extrabold text-orange-950 flex items-center gap-1.5">
-            <span>🖨️</span> Formato da Impressora Térmica (Recibos / PDV)
-          </label>
-          <p className="text-[11px] text-slate-600 font-medium">
-            Escolha a largura padrão da bobina para formatação automática nos cupons.
-          </p>
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => setForm({ ...form, thermalPaperWidth: '58mm' })}
-              className={`py-2 px-3 rounded-xl text-xs font-bold transition flex flex-col items-center justify-center gap-0.5 border cursor-pointer ${
-                (form.thermalPaperWidth || '80mm') === '58mm'
-                  ? 'bg-orange-500 text-white border-orange-600 shadow-2xs font-extrabold'
-                  : 'bg-white text-slate-700 border-slate-200 hover:bg-orange-100/50'
-              }`}
-            >
-              <span>58mm (Bobina Estreita)</span>
-              <span className={`text-[10px] ${ (form.thermalPaperWidth || '80mm') === '58mm' ? 'text-orange-100' : 'text-slate-400' }`}>Mini Impressoras Bluetooth/USB</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setForm({ ...form, thermalPaperWidth: '80mm' })}
-              className={`py-2 px-3 rounded-xl text-xs font-bold transition flex flex-col items-center justify-center gap-0.5 border cursor-pointer ${
-                (form.thermalPaperWidth || '80mm') === '80mm'
-                  ? 'bg-orange-500 text-white border-orange-600 shadow-2xs font-extrabold'
-                  : 'bg-white text-slate-700 border-slate-200 hover:bg-orange-100/50'
-              }`}
-            >
-              <span>80mm (Bobina Padrão/Larga)</span>
-              <span className={`text-[10px] ${ (form.thermalPaperWidth || '80mm') === '80mm' ? 'text-orange-100' : 'text-slate-400' }`}>Impressoras Bematech, Elgin, Epson</span>
-            </button>
-          </div>
-        </div>
+        {/* Local Printer Registration & Print Automation */}
+        <LocalPrinterSection form={form} setForm={setForm} />
 
         {/* Supabase Integration Card Section */}
         <SupabaseCardSection />

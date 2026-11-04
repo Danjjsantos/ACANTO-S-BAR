@@ -17,12 +17,20 @@
 
 /* Thermal & Full Report Printing Styles */
 @media print {
+  /* Set zero margins so thermal roll printers do not feed extra blank pages or split into multiple vias */
+  @page {
+    margin: 0mm !important;
+    size: auto;
+  }
+
+  html,
   body {
     background: #ffffff !important;
     color: #000000 !important;
     font-size: 11pt;
     margin: 0 !important;
     padding: 0 !important;
+    width: 100% !important;
   }
 
   /* Hide app navigation header, sidebar, toast containers and elements with print:hidden or no-print */
@@ -41,14 +49,33 @@
     max-width: 100% !important;
   }
 
-  /* THERMAL PAPER SLIP OVERRIDE (Only active when .printable-thermal-slip exists) */
+  /* THERMAL PAPER SLIP OVERRIDE (Active when .printable-thermal-slip exists) */
   body:has(.printable-thermal-slip) * {
     visibility: hidden;
   }
 
   body:has(.printable-thermal-slip) .printable-thermal-slip,
   body:has(.printable-thermal-slip) .printable-thermal-slip * {
-    visibility: visible;
+    visibility: visible !important;
+  }
+
+  /* 
+   * Strict monochrome black font rule:
+   * Enforce 100% solid black for all text, borders and lines without any color differentiation
+   */
+  .printable-thermal-slip,
+  .printable-thermal-slip *,
+  #printable-bill,
+  #printable-bill *,
+  .printable-receipt,
+  .printable-receipt * {
+    color: #000000 !important;
+    -webkit-text-fill-color: #000000 !important;
+    border-color: #000000 !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    background-color: transparent !important;
   }
 
   .printable-thermal-slip {
@@ -56,19 +83,29 @@
     left: 0 !important;
     top: 0 !important;
     margin: 0 !important;
-    padding: 2mm 2mm !important;
+    padding: 2mm 3mm !important;
     background: #ffffff !important;
     color: #000000 !important;
     font-family: 'Courier New', Courier, monospace, monospace !important;
     box-shadow: none !important;
     border: none !important;
+
+    /* Enforce SINGLE VIA - avoid page breaks before/after/inside */
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-before: avoid !important;
+    break-before: avoid !important;
+    height: auto !important;
+    max-height: none !important;
   }
 
   .printable-thermal-slip.paper-58mm {
     width: 58mm !important;
     max-width: 58mm !important;
     font-size: 10px !important;
-    line-height: 1.2 !important;
+    line-height: 1.25 !important;
   }
 
   .printable-thermal-slip.paper-80mm {
@@ -82,7 +119,7 @@
   .printable-report-card {
     break-inside: avoid;
     box-shadow: none !important;
-    border: 1px solid #cbd5e1 !important;
+    border: 1px solid #000000 !important;
     background: #ffffff !important;
     color: #000000 !important;
   }
@@ -97,14 +134,9 @@
   }
 
   th, td {
-    border-bottom: 1px solid #cbd5e1 !important;
+    border-bottom: 1px solid #000000 !important;
     padding: 6px 8px !important;
     color: #000000 !important;
-  }
-
-  @page {
-    margin: 12mm;
-    size: auto;
   }
 }
 

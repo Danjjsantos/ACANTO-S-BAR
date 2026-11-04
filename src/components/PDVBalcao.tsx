@@ -287,6 +287,17 @@ export const PDVBalcao: React.FC = () => {
 
     // Open receipt modal for finalized order
     setSelectedReceiptOrder(newOrder);
+
+    // Auto print if enabled in store settings
+    if (settings.autoPrintPdvOrders !== false) {
+      setTimeout(() => {
+        try {
+          window.print();
+        } catch (e) {
+          console.error('Erro na impressão automática do PDV:', e);
+        }
+      }, 400);
+    }
   };
 
   return (

@@ -78,6 +78,9 @@ export const MesasComandas: React.FC = () => {
   const [showPrintBillModal, setShowPrintBillModal] = useState(false);
   const [printingTable, setPrintingTable] = useState<Table | null>(null);
   const [includeServiceFee, setIncludeServiceFee] = useState(true);
+  const [billPaperWidth, setBillPaperWidth] = useState<'58mm' | '80mm'>(
+    settings.thermalPaperWidth || '80mm'
+  );
 
   // Helper to find open comanda for table
   const getComandaForTable = (tableId: number) => {
@@ -218,7 +221,18 @@ export const MesasComandas: React.FC = () => {
   const handleOpenPrintBill = (tbl: Table, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setPrintingTable(tbl);
+    setBillPaperWidth(settings.thermalPaperWidth || '80mm');
     setShowPrintBillModal(true);
+    if (settings.autoPrintTableBills !== false) {
+      updateTableStatus(tbl.id, 'fechando');
+      setTimeout(() => {
+        try {
+          window.print();
+        } catch (err) {
+          console.error('Erro na impressão automática da mesa:', err);
+        }
+      }, 350);
+    }
   };
 
   // Trigger Print Receipt
@@ -845,11 +859,11 @@ export const MesasComandas: React.FC = () => {
 
       {/* IMPRIMIR CONTA / COMPROVANTE MODAL */}
       {showPrintBillModal && printingTable && (
-        <div className="fixed inset-0 bg-slate-900/70 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden border border-slate-300 animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 bg-slate-900/70 z-50 flex items-center justify-center p-4 backdrop-blur-xs print:p-0 print:bg-transparent print:static print:inset-auto print:block">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden border border-slate-300 animate-in fade-in zoom-in-95 duration-150 print:shadow-none print:border-none print:max-w-none print:rounded-none print:w-auto">
             
-            {/* Modal Actions Header */}
-            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+            {/* Modal Actions Header - Hidden on Print */}
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between print:hidden">
               <div className="flex items-center gap-2">
                 <Printer className="w-5 h-5 text-amber-400" />
                 <h3 className="font-extrabold text-sm">Impressão de Conta da Mesa</h3>
@@ -862,30 +876,74 @@ export const MesasComandas: React.FC = () => {
               </button>
             </div>
 
+            {/* Paper Size Quick Selector - Hidden on Print */}
+            <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 flex items-center justify-between text-xs font-bold text-slate-700 print:hidden">
+              <span className="text-[11px] font-bold text-slate-700">
+                🖨️ Papel Térmico:
+              </span>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setBillPaperWidth('58mm')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    billPaperWidth === '58mm'
+                      ? 'bg-amber-500 text-white shadow-2xs font-extrabold'
+                      : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-300'
+                  }`}
+                >
+                  58mm (Pequeno)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBillPaperWidth('80mm')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    billPaperWidth === '80mm'
+                      ? 'bg-amber-500 text-white shadow-2xs font-extrabold'
+                      : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-300'
+                  }`}
+                >
+                  80mm (Padrão)
+                </button>
+              </div>
+            </div>
+
             {/* Printable Bill Preview Area */}
-            <div className="p-6 bg-slate-50 font-mono text-xs space-y-4 max-h-[65vh] overflow-y-auto">
+            <div className="p-6 bg-slate-50 font-mono text-xs space-y-4 max-h-[65vh] overflow-y-auto print:p-0 print:bg-transparent print:max-h-none print:overflow-visible print:block">
               {/* Receipt Content Box */}
-              <div id="printable-bill" className="bg-white p-5 border border-slate-300 shadow-sm space-y-3 rounded-lg text-slate-900">
-                <div className="text-center pb-2 border-b border-dashed border-slate-300 space-y-0.5">
-                  <h2 className="font-extrabold text-sm uppercase">{settings.name}</h2>
-                  <p className="text-[11px] text-slate-600">{settings.address}</p>
-                  <p className="text-[11px] text-slate-600">Tel: {settings.phone}</p>
-                  <p className="text-[10px] text-slate-500 mt-1">
+              <div
+                id="printable-bill"
+                className={`printable-thermal-slip paper-${billPaperWidth} font-mono bg-white p-4 shadow-none border border-black text-black space-y-3 rounded-none transition-all duration-200 print:border-none print:p-2 mx-auto ${
+                  billPaperWidth === '58mm' ? 'w-[260px] text-[10px]' : 'w-[340px] text-xs'
+                }`}
+              >
+                <div className="text-center pb-2 border-b border-dashed border-black space-y-0.5 text-black">
+                  <h2 className="font-extrabold text-sm uppercase text-black">{settings.name}</h2>
+                  {settings.cnpj && <p className="text-[11px] text-black">CNPJ: {settings.cnpj}</p>}
+                  <p className="text-[11px] text-black">{settings.address}</p>
+                  <p className="text-[11px] text-black">Tel: {settings.phone}</p>
+                  <div className="border-b border-dashed border-black my-1"></div>
+                  <p className="font-extrabold text-black text-xs uppercase">
+                    *** FECHAMENTO DE CONTA ***
+                  </p>
+                  <p className="text-[10px] font-extrabold text-black uppercase tracking-wider">
+                    [ VIA ÚNICA ]
+                  </p>
+                  <p className="text-[10px] text-black mt-1">
                     Data: {new Date().toLocaleDateString('pt-BR')} • Hora: {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
 
-                <div className="text-xs space-y-0.5 py-1 border-b border-dashed border-slate-300 font-bold">
-                  <p className="text-purple-900">{printingTable.name.toUpperCase()}</p>
-                  {printingTable.waiterName && <p className="text-slate-600 font-normal">Garçom: {printingTable.waiterName}</p>}
-                  {printingTable.customerName && <p className="text-slate-600 font-normal">Cliente: {printingTable.customerName}</p>}
+                <div className="text-xs space-y-0.5 py-1 border-b border-dashed border-black font-bold text-black">
+                  <p className="text-black uppercase font-black">{printingTable.name.toUpperCase()}</p>
+                  {printingTable.waiterName && <p className="text-black font-normal">Garçom: {printingTable.waiterName}</p>}
+                  {printingTable.customerName && <p className="text-black font-normal">Cliente: {printingTable.customerName}</p>}
                 </div>
 
                 {/* Consumed Items */}
                 {(() => {
                   const comanda = getComandaForTable(printingTable.id);
                   if (!comanda || comanda.items.length === 0) {
-                    return <p className="text-center py-4 text-slate-400 italic font-sans text-xs">Nenhum item lançado para impressão.</p>;
+                    return <p className="text-center py-4 text-black italic font-sans text-xs">Nenhum item lançado para impressão.</p>;
                   }
 
                   const subtotal = comanda.total;
@@ -894,37 +952,37 @@ export const MesasComandas: React.FC = () => {
 
                   return (
                     <>
-                      <div className="space-y-1 py-1">
-                        <div className="flex justify-between font-bold text-[11px] border-b pb-1 text-slate-500 uppercase">
+                      <div className="space-y-1 py-1 text-black">
+                        <div className="flex justify-between font-bold text-[11px] border-b border-black pb-1 text-black uppercase">
                           <span>Qtd / Item</span>
                           <span>Total</span>
                         </div>
                         {comanda.items.map((it) => (
-                          <div key={it.id} className="flex justify-between text-[11px] pt-1">
+                          <div key={it.id} className="flex justify-between text-[11px] pt-1 text-black">
                             <span>{it.quantity}x {it.name}</span>
-                            <span>R$ {(it.unitTotal * it.quantity).toFixed(2).replace('.', ',')}</span>
+                            <span className="font-bold">R$ {(it.unitTotal * it.quantity).toFixed(2).replace('.', ',')}</span>
                           </div>
                         ))}
                       </div>
 
-                      <div className="pt-2 border-t border-dashed border-slate-300 space-y-1 font-bold text-xs">
-                        <div className="flex justify-between text-slate-700">
+                      <div className="pt-2 border-t border-dashed border-black space-y-1 font-bold text-xs text-black">
+                        <div className="flex justify-between text-black">
                           <span>Subtotal:</span>
                           <span>R$ {subtotal.toFixed(2).replace('.', ',')}</span>
                         </div>
                         {includeServiceFee && (
-                          <div className="flex justify-between text-slate-700 text-[11px]">
+                          <div className="flex justify-between text-black text-[11px]">
                             <span>Taxa de Serviço (10%):</span>
                             <span>R$ {serviceFee.toFixed(2).replace('.', ',')}</span>
                           </div>
                         )}
-                        <div className="flex justify-between text-sm text-slate-900 font-extrabold pt-1 border-t border-slate-200">
+                        <div className="flex justify-between text-sm text-black font-extrabold pt-1 border-t border-black">
                           <span>TOTAL DA CONTA:</span>
-                          <span className="text-purple-900">R$ {grandTotal.toFixed(2).replace('.', ',')}</span>
+                          <span className="text-black">R$ {grandTotal.toFixed(2).replace('.', ',')}</span>
                         </div>
                       </div>
 
-                      <div className="text-center text-[10px] text-slate-500 pt-3 border-t border-dashed border-slate-300 font-sans">
+                      <div className="text-center text-[10px] text-black pt-3 border-t border-dashed border-black font-sans font-bold">
                         <p>Obrigado pela preferência e volte sempre!</p>
                       </div>
                     </>
@@ -932,8 +990,8 @@ export const MesasComandas: React.FC = () => {
                 })()}
               </div>
 
-              {/* Service Fee Toggle */}
-              <div className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-sans font-bold text-amber-900">
+              {/* Service Fee Toggle - Hidden on Print */}
+              <div className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-sans font-bold text-amber-900 print:hidden">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -946,8 +1004,8 @@ export const MesasComandas: React.FC = () => {
               </div>
             </div>
 
-            {/* Footer buttons */}
-            <div className="p-4 bg-white border-t border-slate-200 flex justify-end gap-2">
+            {/* Footer buttons - Hidden on Print */}
+            <div className="p-4 bg-white border-t border-slate-200 flex justify-end gap-2 print:hidden">
               <button
                 onClick={() => setShowPrintBillModal(false)}
                 className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"

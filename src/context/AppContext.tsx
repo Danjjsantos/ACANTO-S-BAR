@@ -517,7 +517,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (!isPdv && !isFinalized) {
       // 1. Audio siren & auto print ticket for kitchen
-      handleDigitalMenuOrderAlerts(ord, setSelectedReceiptOrder);
+      handleDigitalMenuOrderAlerts(ord, setSelectedReceiptOrder, settings);
 
       // 2. Notification toast in store
       const itemsCount = ord.items ? ord.items.reduce((sum, item) => sum + item.quantity, 0) : 0;

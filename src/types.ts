@@ -193,6 +193,18 @@ export interface StoreSettings {
   orderReadyMsg?: string;
   pixRequestMsg?: string;
   thermalPaperWidth?: '58mm' | '80mm';
+  // Configurações da Impressora Local e Impressão Automática
+  printerName?: string;
+  printerModel?: string;
+  printerLocation?: string;
+  printerInterface?: 'padrao_sistema' | 'usb' | 'rede' | 'bluetooth';
+  printerIpAddress?: string;
+  printerCutPaper?: boolean;
+  printerBeepAlert?: boolean;
+  autoPrintOnlineOrders?: boolean;
+  autoPrintPdvOrders?: boolean;
+  autoPrintTableBills?: boolean;
+  autoPrintSilentMode?: boolean;
   menuSlug?: string;
   customDomain?: string;
 }

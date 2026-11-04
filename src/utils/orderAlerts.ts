@@ -1,4 +1,4 @@
-import { Order } from '../types';
+import { Order, StoreSettings } from '../types';
 
 let sharedAudioCtx: AudioContext | null = null;
 let isAudioUnlocked = false;
@@ -301,11 +301,12 @@ export function isOrderObjectAlerted(order: Partial<Order>): boolean {
 /**
  * Executes automatic actions for digital menu orders:
  * 1. Plays loud siren audio alert
- * 2. Opens receipt modal and triggers auto-print for kitchen preparation
+ * 2. Opens receipt modal and triggers auto-print for kitchen preparation (if enabled)
  */
 export function handleDigitalMenuOrderAlerts(
   order: Order,
-  setSelectedReceiptOrder?: (order: Order) => void
+  setSelectedReceiptOrder?: (order: Order) => void,
+  settings?: StoreSettings
 ) {
   // Do not play siren on finalized sales/orders or PDV sales
   if (order.status === 'entregue' || order.status === 'cancelado' || order.type === 'pdv') {
@@ -315,8 +316,10 @@ export function handleDigitalMenuOrderAlerts(
   // 1. Loud Siren Audio Alert via Audio object & Web Audio
   playAudioSiren();
 
-  // 2. Auto Print Ticket for Kitchen Preparation
-  if (setSelectedReceiptOrder) {
+  // 2. Auto Print Ticket for Kitchen Preparation (if auto-print is enabled)
+  const shouldAutoPrint = settings ? settings.autoPrintOnlineOrders !== false : true;
+
+  if (setSelectedReceiptOrder && shouldAutoPrint) {
     setSelectedReceiptOrder(order);
     setTimeout(() => {
       try {

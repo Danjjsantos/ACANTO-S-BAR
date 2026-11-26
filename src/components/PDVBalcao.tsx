@@ -97,6 +97,7 @@ export const PDVBalcao: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
   const [partialPaidInput, setPartialPaidInput] = useState<string>('');
   const [partialMethod, setPartialMethod] = useState<BasePaymentMethod>('pix');
+  const [partialNote, setPartialNote] = useState<string>('');
   const [customerName, setCustomerName] = useState<string>('');
   const [customerPhone, setCustomerPhone] = useState<string>('');
   const [orderNotes, setOrderNotes] = useState<string>('');
@@ -234,7 +235,7 @@ export const PDVBalcao: React.FC = () => {
               amount: clampedPartialPaid,
               method: partialMethod,
               paidAt: new Date().toISOString(),
-              note: 'Entrada parcial',
+              note: partialNote.trim() || 'Entrada parcial',
             },
           ]
         : undefined;
@@ -314,7 +315,7 @@ export const PDVBalcao: React.FC = () => {
               amount: clampedPartialPaid,
               method: partialMethod,
               paidAt: new Date().toISOString(),
-              note: 'Pagamento parcial inicial (PDV)',
+              note: partialNote.trim() || 'Pagamento parcial inicial (PDV)',
             },
           ]
         : undefined;
@@ -340,6 +341,7 @@ export const PDVBalcao: React.FC = () => {
     clearPdvCart();
     setDiscount(0);
     setPartialPaidInput('');
+    setPartialNote('');
     setCustomerName('');
     setCustomerPhone('');
     setOrderNotes('');
@@ -984,23 +986,22 @@ export const PDVBalcao: React.FC = () => {
                     max={total}
                     value={partialPaidInput}
                     onChange={(e) => setPartialPaidInput(e.target.value)}
-                    placeholder={`Ex: ${(total / 2).toFixed(2)}`}
+                    placeholder="Ex: 50,00"
                     className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-sm font-black text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   />
-                  {total > 0 && (
-                    <div className="flex gap-1.5 mt-1.5">
-                      {[0.25, 0.5, 0.75].map((pct) => (
-                        <button
-                          key={pct}
-                          type="button"
-                          onClick={() => setPartialPaidInput((total * pct).toFixed(2))}
-                          className="flex-1 py-1 bg-white hover:bg-indigo-100 border border-indigo-200 rounded-md text-[10px] font-bold text-indigo-800 cursor-pointer transition"
-                        >
-                          {Math.round(pct * 100)}% (R$ {(total * pct).toFixed(2).replace('.', ',')})
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-indigo-900 mb-1">
+                    Observação / Referência do Valor Pago
+                  </label>
+                  <input
+                    type="text"
+                    value={partialNote}
+                    onChange={(e) => setPartialNote(e.target.value)}
+                    placeholder="Ex: Nome, referência do valor pago..."
+                    className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-xs font-medium text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
                 </div>
 
                 <div>

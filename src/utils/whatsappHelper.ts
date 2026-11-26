@@ -127,7 +127,7 @@ export function generateOrderSummaryText(order: Order, settings: StoreSettings):
     }
     if (order.partialPayments && order.partialPayments.length > 0) {
       msg += order.partialPayments
-        .map((p) => `   └ ${formatPaymentMethodLabel(p.method)}: R$ ${p.amount.toFixed(2).replace('.', ',')}`)
+        .map((p) => `   └ ${formatPaymentMethodLabel(p.method)}: R$ ${p.amount.toFixed(2).replace('.', ',')}${p.note ? ` (${p.note})` : ''}`)
         .join('\n') + '\n';
     }
   }

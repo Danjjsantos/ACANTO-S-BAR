@@ -85,6 +85,7 @@ export const PedidosList: React.FC = () => {
   const [settleMethod, setSettleMethod] = useState<PaymentMethod>('pix');
   const [settleMode, setSettleMode] = useState<'full' | 'partial'>('full');
   const [settlePartialAmountInput, setSettlePartialAmountInput] = useState<string>('');
+  const [settlePartialNote, setSettlePartialNote] = useState<string>('');
 
   // Status Labels & Color Schemes
   const statusConfig: Record<
@@ -909,6 +910,7 @@ export const PedidosList: React.FC = () => {
                                 setOrderToSettlePG(ord);
                                 setSettleMode('full');
                                 setSettlePartialAmountInput('');
+                                setSettlePartialNote('');
                                 setSettleMethod(ord.paymentMethod && ord.paymentMethod !== 'parcial' ? ord.paymentMethod : 'pix');
                               }}
                               className="text-[10px] text-slate-500 hover:text-purple-700 underline font-bold cursor-pointer"
@@ -939,6 +941,7 @@ export const PedidosList: React.FC = () => {
                                   setOrderToSettlePG(ord);
                                   setSettleMode('full');
                                   setSettlePartialAmountInput('');
+                                  setSettlePartialNote('');
                                   setSettleMethod(
                                     ord.paymentMethod && ord.paymentMethod !== 'pg' && ord.paymentMethod !== 'parcial'
                                       ? ord.paymentMethod
@@ -1140,9 +1143,14 @@ export const PedidosList: React.FC = () => {
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1 text-[11px]">
                   <span className="font-extrabold text-slate-700 uppercase block text-[10px]">Histórico de Pagamentos:</span>
                   {orderToSettlePG.partialPayments.map((pp) => (
-                    <div key={pp.id} className="flex justify-between text-slate-700 font-semibold">
-                      <span>✓ {formatPaymentMethodLabel(pp.method)}</span>
-                      <span>R$ {pp.amount.toFixed(2).replace('.', ',')}</span>
+                    <div key={pp.id} className="space-y-0.5">
+                      <div className="flex justify-between text-slate-700 font-semibold">
+                        <span>✓ {formatPaymentMethodLabel(pp.method)}</span>
+                        <span>R$ {pp.amount.toFixed(2).replace('.', ',')}</span>
+                      </div>
+                      {pp.note && (
+                        <p className="text-[10px] text-slate-500 pl-3">Obs: {pp.note}</p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1186,9 +1194,21 @@ export const PedidosList: React.FC = () => {
                     max={remainingDue}
                     value={settlePartialAmountInput}
                     onChange={(e) => setSettlePartialAmountInput(e.target.value)}
-                    placeholder={`Ex: ${(remainingDue / 2).toFixed(2)}`}
+                    placeholder="Ex: 50,00"
                     className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-sm font-black text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                   />
+                  <div>
+                    <label className="block text-[11px] font-bold text-indigo-900 mb-1">
+                      Observação / Referência do Valor Pago
+                    </label>
+                    <input
+                      type="text"
+                      value={settlePartialNote}
+                      onChange={(e) => setSettlePartialNote(e.target.value)}
+                      placeholder="Ex: Nome, referência do valor pago..."
+                      className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-xs font-medium text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    />
+                  </div>
                   <div className="flex justify-between text-[11px] font-bold text-indigo-900 pt-1">
                     <span>Pago agora: R$ {parsedPartial.toFixed(2).replace('.', ',')}</span>
                     <span className="text-amber-800">Restará em aberto: R$ {remainingAfterPartial.toFixed(2).replace('.', ',')}</span>
@@ -1246,7 +1266,12 @@ export const PedidosList: React.FC = () => {
                       }
                       const method: BasePaymentMethod =
                         settleMethod === 'pg' || settleMethod === 'parcial' ? 'pix' : (settleMethod as BasePaymentMethod);
-                      registerOrderPartialPayment(orderToSettlePG.id, parsedPartial, method);
+                      registerOrderPartialPayment(
+                        orderToSettlePG.id,
+                        parsedPartial,
+                        method,
+                        settlePartialNote.trim() || undefined
+                      );
                       setOrderToSettlePG(null);
                       return;
                     }

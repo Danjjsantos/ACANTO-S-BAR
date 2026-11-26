@@ -126,9 +126,16 @@ export const ReceiptModal: React.FC = () => {
               <div className="text-left space-y-0.5 mb-1">
                 <p className="font-extrabold text-black uppercase">PAGAMENTOS REALIZADOS:</p>
                 {ord.partialPayments.map((pp) => (
-                  <div key={pp.id} className="flex justify-between text-black">
-                    <span>- {formatPaymentMethodLabel(pp.method)}</span>
-                    <span>R$ {pp.amount.toFixed(2).replace('.', ',')}</span>
+                  <div key={pp.id} className="text-black">
+                    <div className="flex justify-between text-black">
+                      <span>- {formatPaymentMethodLabel(pp.method)}</span>
+                      <span>R$ {pp.amount.toFixed(2).replace('.', ',')}</span>
+                    </div>
+                    {pp.note && (
+                      <p className="text-[9px] text-black pl-2 leading-tight">
+                        Obs: {pp.note}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>

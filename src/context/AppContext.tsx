@@ -205,7 +205,7 @@ interface AppContextType {
     comandaId: string,
     paymentMethod: PaymentMethod,
     serviceFee?: number,
-    partialInfo?: { amountPaidNow: number; method: BasePaymentMethod }
+    partialInfo?: { amountPaidNow: number; method: BasePaymentMethod; note?: string }
   ) => void;
 
   // Customers
@@ -1825,7 +1825,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     comandaId: string,
     paymentMethod: PaymentMethod,
     serviceFee: number = 0,
-    partialInfo?: { amountPaidNow: number; method: BasePaymentMethod }
+    partialInfo?: { amountPaidNow: number; method: BasePaymentMethod; note?: string }
   ) => {
     const comanda = comandas.find((c) => c.id === comandaId);
     if (!comanda) return;
@@ -1849,7 +1849,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           amount: Math.min(paidNow, Math.max(0, +(grandTotal - existingPaid).toFixed(2))),
           method: nowMethod,
           paidAt: new Date().toISOString(),
-          note: 'Pagamento parcial no fechamento',
+          note: partialInfo?.note?.trim() || 'Pagamento parcial no fechamento',
         };
         finalPartials = [...existingPartials, entry];
         finalPaid = Math.min(grandTotal, +(existingPaid + entry.amount).toFixed(2));

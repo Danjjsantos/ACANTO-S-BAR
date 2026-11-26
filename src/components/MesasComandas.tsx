@@ -75,11 +75,13 @@ export const MesasComandas: React.FC = () => {
   const [closeIncludeServiceFee, setCloseIncludeServiceFee] = useState(false);
   const [closePartialPaidInput, setClosePartialPaidInput] = useState<string>('');
   const [closePartialMethod, setClosePartialMethod] = useState<BasePaymentMethod>('pix');
+  const [closePartialNote, setClosePartialNote] = useState<string>('');
 
   // Advance Partial Payment inside open table
   const [showTableAdvancePartial, setShowTableAdvancePartial] = useState(false);
   const [advancePartialInput, setAdvancePartialInput] = useState<string>('');
   const [advancePartialMethod, setAdvancePartialMethod] = useState<BasePaymentMethod>('pix');
+  const [advancePartialNote, setAdvancePartialNote] = useState<string>('');
 
   // Table Delete confirmation
   const [tableToDelete, setTableToDelete] = useState<Table | null>(null);
@@ -197,6 +199,7 @@ export const MesasComandas: React.FC = () => {
       return;
     }
     setClosePartialPaidInput('');
+    setClosePartialNote('');
     setClosingTable(tbl);
     setShowCloseBillModal(true);
   };
@@ -239,7 +242,7 @@ export const MesasComandas: React.FC = () => {
         closePaymentMethod,
         serviceFee,
         closePaymentMethod === 'parcial'
-          ? { amountPaidNow: paidNow, method: closePartialMethod }
+          ? { amountPaidNow: paidNow, method: closePartialMethod, note: closePartialNote.trim() || undefined }
           : undefined
       );
 
@@ -633,9 +636,14 @@ export const MesasComandas: React.FC = () => {
                       {openComanda.partialPayments && openComanda.partialPayments.length > 0 && (
                         <div className="space-y-1 text-[11px] text-indigo-900 bg-white/80 p-2 rounded-xl border border-indigo-100">
                           {openComanda.partialPayments.map((pp) => (
-                            <div key={pp.id} className="flex justify-between font-semibold">
-                              <span>✓ {formatPaymentMethodLabel(pp.method)}</span>
-                              <span>R$ {pp.amount.toFixed(2).replace('.', ',')}</span>
+                            <div key={pp.id} className="space-y-0.5">
+                              <div className="flex justify-between font-semibold">
+                                <span>✓ {formatPaymentMethodLabel(pp.method)}</span>
+                                <span>R$ {pp.amount.toFixed(2).replace('.', ',')}</span>
+                              </div>
+                              {pp.note && (
+                                <p className="text-[10px] text-indigo-700 pl-3">Obs: {pp.note}</p>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -666,6 +674,13 @@ export const MesasComandas: React.FC = () => {
                               ))}
                             </select>
                           </div>
+                          <input
+                            type="text"
+                            value={advancePartialNote}
+                            onChange={(e) => setAdvancePartialNote(e.target.value)}
+                            placeholder="Observação / Referência (ex: Nome de quem pagou)"
+                            className="w-full px-2.5 py-1.5 bg-white border border-indigo-300 rounded-lg text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
                           <button
                             type="button"
                             onClick={() => {
@@ -679,8 +694,14 @@ export const MesasComandas: React.FC = () => {
                                 });
                                 return;
                               }
-                              addComandaPartialPayment(openComanda.id, val, advancePartialMethod);
+                              addComandaPartialPayment(
+                                openComanda.id,
+                                val,
+                                advancePartialMethod,
+                                advancePartialNote.trim() || undefined
+                              );
                               setAdvancePartialInput('');
+                              setAdvancePartialNote('');
                               setShowTableAdvancePartial(false);
                             }}
                             className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl cursor-pointer transition"
@@ -878,23 +899,22 @@ export const MesasComandas: React.FC = () => {
                             max={remainingDue}
                             value={closePartialPaidInput}
                             onChange={(e) => setClosePartialPaidInput(e.target.value)}
-                            placeholder={`Ex: ${(remainingDue / 2).toFixed(2)}`}
+                            placeholder="Ex: 50,00"
                             className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-sm font-black text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                           />
-                          {remainingDue > 0 && (
-                            <div className="flex gap-1.5 mt-1.5">
-                              {[0.25, 0.5, 0.75].map((pct) => (
-                                <button
-                                  key={pct}
-                                  type="button"
-                                  onClick={() => setClosePartialPaidInput((remainingDue * pct).toFixed(2))}
-                                  className="flex-1 py-1 bg-white hover:bg-indigo-100 border border-indigo-200 rounded-md text-[10px] font-bold text-indigo-800 cursor-pointer"
-                                >
-                                  {Math.round(pct * 100)}% (R$ {(remainingDue * pct).toFixed(2).replace('.', ',')})
-                                </button>
-                              ))}
-                            </div>
-                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-indigo-900 mb-1">
+                            Observação / Referência do Valor Pago
+                          </label>
+                          <input
+                            type="text"
+                            value={closePartialNote}
+                            onChange={(e) => setClosePartialNote(e.target.value)}
+                            placeholder="Ex: Nome, referência do valor pago..."
+                            className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-xs font-medium text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          />
                         </div>
 
                         <div>

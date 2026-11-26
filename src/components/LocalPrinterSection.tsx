@@ -86,9 +86,9 @@ export const LocalPrinterSection: React.FC<LocalPrinterSectionProps> = ({ form, 
     testContainer.innerHTML = `
       <div style="width: 100%; ${widthStyle} margin: 0 auto; font-family: monospace; font-size: 11px; line-height: 1.3; color: #000000; background: #ffffff;">
         <div style="text-align: center; border-bottom: 1px dashed #000000; padding-bottom: 6px; margin-bottom: 6px;">
-          <h2 style="font-size: 14px; font-weight: 900; margin: 0; color: #000000;">${(form.name || 'BAR DO ACANTO').toUpperCase()}</h2>
-          <p style="font-size: 9px; margin: 2px 0 0 0; color: #000000;">${form.address || 'São Paulo - SP'}</p>
-          <p style="font-size: 9px; margin: 2px 0 0 0; color: #000000;">CNPJ: ${form.cnpj || '12.345.678/0001-90'}</p>
+          <h2 style="font-size: 14px; font-weight: 900; margin: 0; color: #000000;">${(form.name || 'ESTABELECIMENTO').toUpperCase()}</h2>
+          ${form.address ? `<p style="font-size: 9px; margin: 2px 0 0 0; color: #000000;">${form.address}</p>` : ''}
+          ${form.cnpj ? `<p style="font-size: 9px; margin: 2px 0 0 0; color: #000000;">CNPJ: ${form.cnpj}</p>` : ''}
         </div>
 
         <div style="text-align: center; border-bottom: 1px dashed #000000; padding-bottom: 6px; margin-bottom: 6px;">

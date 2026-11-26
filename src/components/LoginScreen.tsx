@@ -19,12 +19,23 @@ import {
   ArrowLeft,
   RefreshCw,
   Send,
+  UserPlus,
+  Loader2,
 } from 'lucide-react';
 
 type RecoveryStep = 'identify' | 'select_channel' | 'verify_code' | 'new_password' | 'success';
 
 export const LoginScreen: React.FC = () => {
-  const { users, loginUser, updateUser, setViewMode, settings, addToast } = useApp();
+  const {
+    users,
+    isSyncingInitialData,
+    loginUser,
+    addUser,
+    updateUser,
+    setViewMode,
+    settings,
+    addToast,
+  } = useApp();
 
   // Standard Login form states
   const [identifierInput, setIdentifierInput] = useState<string>('');
@@ -32,6 +43,15 @@ export const LoginScreen: React.FC = () => {
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // First-access Admin Registration states (when users.length === 0)
+  const [setupName, setSetupName] = useState<string>('');
+  const [setupEmail, setSetupEmail] = useState<string>('');
+  const [setupPhone, setSetupPhone] = useState<string>('');
+  const [setupPin, setSetupPin] = useState<string>('');
+  const [setupConfirmPin, setSetupConfirmPin] = useState<string>('');
+  const [showSetupPin, setShowSetupPin] = useState<boolean>(false);
+  const [setupError, setSetupError] = useState<string>('');
 
   // Password Recovery modal / flow states
   const [isRecoveryOpen, setIsRecoveryOpen] = useState<boolean>(false);
@@ -65,6 +85,41 @@ export const LoginScreen: React.FC = () => {
     const ddd = digits.slice(-11, -9) || digits.slice(0, 2);
     const lastDigits = digits.slice(-4);
     return `(${ddd}) 9****-${lastDigits}`;
+  };
+
+  const handleFirstAdminSetup = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSetupError('');
+
+    if (!setupName.trim()) {
+      setSetupError('Por favor, informe o nome do administrador.');
+      return;
+    }
+    if (!setupEmail.trim() || !setupEmail.includes('@')) {
+      setSetupError('Por favor, informe um e-mail válido.');
+      return;
+    }
+    if (!setupPin.trim() || setupPin.trim().length < 4) {
+      setSetupError('A senha ou PIN deve conter no mínimo 4 caracteres ou dígitos.');
+      return;
+    }
+    if (setupPin.trim() !== setupConfirmPin.trim()) {
+      setSetupError('A confirmação de senha não confere.');
+      return;
+    }
+
+    addUser(
+      {
+        name: setupName.trim(),
+        email: setupEmail.trim().toLowerCase(),
+        phone: setupPhone.trim(),
+        pin: setupPin.trim(),
+        role: 'admin',
+        status: 'ativo',
+        avatarEmoji: '👑',
+      },
+      true
+    );
   };
 
   const handleCredentialsLogin = (e: React.FormEvent) => {
@@ -104,7 +159,8 @@ export const LoginScreen: React.FC = () => {
     const found = users.find((u) => {
       const emailMatch = u.email.toLowerCase() === query;
       const nameMatch = u.name.toLowerCase() === query;
-      const phoneMatch = cleanQueryPhone.length >= 8 && u.phone && u.phone.replace(/\D/g, '').includes(cleanQueryPhone);
+      const phoneMatch =
+        cleanQueryPhone.length >= 8 && u.phone && u.phone.replace(/\D/g, '').includes(cleanQueryPhone);
       return emailMatch || nameMatch || phoneMatch;
     });
 
@@ -114,7 +170,6 @@ export const LoginScreen: React.FC = () => {
     }
 
     setMatchedUser(found);
-    // Select default channel based on user availability
     if (found.phone) {
       setDispatchChannel('whatsapp');
     } else {
@@ -131,9 +186,8 @@ export const LoginScreen: React.FC = () => {
     setRecoveryError('');
     setRecoverySuccessNotice('');
 
-    // Generate random 6-digit code
     const generated = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiry = Date.now() + 10 * 60 * 1000; // 10 minutes
+    const expiry = Date.now() + 10 * 60 * 1000;
 
     setVerificationCode(generated);
     setCodeExpiresAt(expiry);
@@ -145,7 +199,6 @@ export const LoginScreen: React.FC = () => {
         const userPhone = matchedUser.phone || settings.whatsappPhone || settings.phone;
         const cleanPhone = cleanPhoneNumber(userPhone);
 
-        // Dispatches code directly to user's registered WhatsApp
         const msg =
           `🔒 *FAZ O PEDIDO - CÓDIGO DE RECUPERAÇÃO DE ACESSO*\n\n` +
           `Olá, *${matchedUser.name}*!\n\n` +
@@ -161,7 +214,6 @@ export const LoginScreen: React.FC = () => {
           `Código de segurança enviado para o WhatsApp cadastrado (${maskPhone(userPhone)}). Verifique sua mensagem e digite o código abaixo.`
         );
       } else {
-        // E-mail simulation - notification sent without ever displaying the code in the UI
         setRecoverySuccessNotice(
           `Código de segurança enviado para o e-mail cadastrado (${maskEmail(matchedUser.email)}). Verifique sua caixa de entrada ou spam e digite o código abaixo.`
         );
@@ -220,7 +272,6 @@ export const LoginScreen: React.FC = () => {
 
     if (!matchedUser) return;
 
-    // Update user PIN/password in state and Supabase
     updateUser(matchedUser.id, { pin: newPassword.trim() });
 
     setRecoveryStep('success');
@@ -259,6 +310,8 @@ export const LoginScreen: React.FC = () => {
     setRecoverySuccessNotice('');
   };
 
+  const hasRegisteredUsers = users.length > 0;
+
   return (
     <div className="min-h-screen bg-slate-900/95 flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden">
       {/* Background Ambience */}
@@ -273,7 +326,7 @@ export const LoginScreen: React.FC = () => {
             <UtensilsCrossed className="w-8 h-8 text-white" />
           </div>
           <h1 className="text-xl font-black text-white tracking-tight uppercase">
-            {settings.name || 'BAR DO ACANTO'}
+            {settings.name || 'MINHA LOJA'}
           </h1>
           <p className="text-xs text-orange-100 font-medium mt-1">
             Plataforma Administrativa & PDV
@@ -286,7 +339,139 @@ export const LoginScreen: React.FC = () => {
 
         {/* Content Body */}
         <div className="p-6">
-          {!isRecoveryOpen ? (
+          {isSyncingInitialData && !hasRegisteredUsers ? (
+            <div className="py-10 text-center space-y-3">
+              <Loader2 className="w-8 h-8 text-orange-600 animate-spin mx-auto" />
+              <p className="text-xs font-bold text-slate-600">
+                Verificando cadastros do administrador no banco de dados...
+              </p>
+            </div>
+          ) : !hasRegisteredUsers ? (
+            /* First Access: Register Real Administrator */
+            <div>
+              <div className="mb-4">
+                <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                  <UserPlus className="w-4 h-4 text-orange-600" />
+                  <span>Primeiro Acesso — Cadastrar Administrador</span>
+                </h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Nenhum usuário cadastrado. Crie o acesso do administrador principal para iniciar e sincronizar seus dados.
+                </p>
+              </div>
+
+              {setupError && (
+                <div className="mb-4 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-start gap-2.5 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{setupError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleFirstAdminSetup} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-extrabold text-slate-800 mb-1">
+                    Nome do Administrador *
+                  </label>
+                  <div className="relative">
+                    <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      value={setupName}
+                      onChange={(e) => setSetupName(e.target.value)}
+                      placeholder="Seu nome completo"
+                      autoFocus
+                      required
+                      className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-extrabold text-slate-800 mb-1">
+                    E-mail de Login *
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="email"
+                      value={setupEmail}
+                      onChange={(e) => setSetupEmail(e.target.value)}
+                      placeholder="seu@email.com"
+                      required
+                      className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-extrabold text-slate-800 mb-1">
+                    WhatsApp (para recuperação de senha)
+                  </label>
+                  <div className="relative">
+                    <MessageSquare className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      value={setupPhone}
+                      onChange={(e) => setSetupPhone(e.target.value)}
+                      placeholder="(DDD) 99999-9999"
+                      className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-xs font-extrabold text-slate-800 mb-1">
+                      Senha ou PIN *
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                      <input
+                        type={showSetupPin ? 'text' : 'password'}
+                        value={setupPin}
+                        onChange={(e) => setSetupPin(e.target.value)}
+                        placeholder="Mín. 4 dígitos"
+                        required
+                        className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSetupPin(!showSetupPin)}
+                        className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                        tabIndex={-1}
+                      >
+                        {showSetupPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-extrabold text-slate-800 mb-1">
+                      Confirmar Senha *
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                      <input
+                        type={showSetupPin ? 'text' : 'password'}
+                        value={setupConfirmPin}
+                        onChange={(e) => setSetupConfirmPin(e.target.value)}
+                        placeholder="Repita a senha"
+                        required
+                        className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 hover:opacity-95 text-white font-black text-xs shadow-md transition flex items-center justify-center gap-2 uppercase tracking-wider cursor-pointer active:scale-[0.99]"
+                >
+                  <span>Cadastrar Administrador e Entrar</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </form>
+            </div>
+          ) : !isRecoveryOpen ? (
             /* Standard Login Form */
             <div>
               <div className="mb-4">
@@ -317,7 +502,7 @@ export const LoginScreen: React.FC = () => {
                       type="text"
                       value={identifierInput}
                       onChange={(e) => setIdentifierInput(e.target.value)}
-                      placeholder="Ex: admin@fazopedido.com ou Carlos"
+                      placeholder="Digite seu e-mail ou nome de usuário"
                       autoFocus
                       required
                       className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition"
@@ -349,7 +534,7 @@ export const LoginScreen: React.FC = () => {
                       type={showPassword ? 'text' : 'password'}
                       value={passwordInput}
                       onChange={(e) => setPasswordInput(e.target.value)}
-                      placeholder="Digite sua senha ou PIN (4 a 6 dígitos)"
+                      placeholder="Digite sua senha ou PIN"
                       required
                       className="w-full pl-9 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition"
                     />
@@ -431,7 +616,7 @@ export const LoginScreen: React.FC = () => {
                         type="text"
                         value={recoveryIdentifier}
                         onChange={(e) => setRecoveryIdentifier(e.target.value)}
-                        placeholder="Ex: admin@fazopedido.com ou Carlos"
+                        placeholder="Digite seu e-mail ou nome cadastrado"
                         autoFocus
                         required
                         className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white"

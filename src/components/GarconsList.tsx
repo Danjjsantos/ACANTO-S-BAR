@@ -16,7 +16,7 @@ export const GarconsList: React.FC = () => {
     if (!name.trim()) return;
     addWaiter({
       name: name.trim(),
-      phone: phone.trim() || '5511999990000',
+      phone: phone.trim(),
     });
     setName('');
     setPhone('');
@@ -43,44 +43,54 @@ export const GarconsList: React.FC = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {waiters.map((w) => (
-          <div key={w.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-3 relative group">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-700 font-extrabold flex items-center justify-center text-sm">
-                  {w.name.charAt(0)}
+      {waiters.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">
+          <Coffee className="w-10 h-10 mx-auto mb-2 opacity-40" />
+          <p className="text-sm font-bold text-slate-600">Nenhum garçom cadastrado</p>
+          <p className="text-xs mt-1">Clique em &quot;Novo Garçom&quot; para cadastrar sua equipe de salão.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {waiters.map((w) => (
+            <div key={w.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-3 relative group">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-700 font-extrabold flex items-center justify-center text-sm">
+                    {w.name.charAt(0)}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm">{w.name}</h3>
+                    {w.phone && (
+                      <p className="text-xs text-slate-500 flex items-center gap-1">
+                        <Phone className="w-3 h-3" /> {w.phone}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 text-sm">{w.name}</h3>
-                  <p className="text-xs text-slate-500 flex items-center gap-1">
-                    <Phone className="w-3 h-3" /> {w.phone}
-                  </p>
+
+                <div className="flex items-center gap-1">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800">
+                    {w.status}
+                  </span>
+                  
+                  <button
+                    onClick={() => setWaiterToDelete(w)}
+                    title="Remover Garçom"
+                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1">
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800">
-                  {w.status}
-                </span>
-                
-                <button
-                  onClick={() => setWaiterToDelete(w)}
-                  title="Remover Garçom"
-                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+              <div className="p-3 bg-slate-50 rounded-xl text-xs flex justify-between font-medium">
+                <span>Mesas em Atendimento:</span>
+                <strong className="text-purple-700 font-bold">{w.activeTables} mesas</strong>
               </div>
             </div>
-
-            <div className="p-3 bg-slate-50 rounded-xl text-xs flex justify-between font-medium">
-              <span>Mesas em Atendimento:</span>
-              <strong className="text-purple-700 font-bold">{w.activeTables} mesas</strong>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* NEW WAITER MODAL */}
       {showAddModal && (

@@ -23,6 +23,17 @@ import {
   DEFAULT_SUPABASE_ANON_KEY,
 } from '../lib/supabase';
 import { testSupabaseConnection, exportAllDataToSupabase } from '../services/supabaseService';
+import {
+  filterNonDemoCategories,
+  filterNonDemoComandas,
+  filterNonDemoCustomers,
+  filterNonDemoDrivers,
+  filterNonDemoOrders,
+  filterNonDemoProducts,
+  filterNonDemoTables,
+  filterNonDemoUsers,
+  filterNonDemoWaiters,
+} from '../utils/demoGuard';
 
 export const SupabaseCardSection: React.FC = () => {
   const {
@@ -33,9 +44,14 @@ export const SupabaseCardSection: React.FC = () => {
     comandas,
     customers,
     orders,
+    waiters,
+    drivers,
     users,
+    currentUser,
     addToast,
   } = useApp();
+
+  const isAdmin = currentUser?.role === 'admin';
 
   const [url, setUrl] = useState('');
   const [anonKey, setAnonKey] = useState('');
@@ -98,23 +114,44 @@ export const SupabaseCardSection: React.FC = () => {
   };
 
   const handleExportAll = async () => {
+    if (!isAdmin) {
+      addToast({
+        title: 'Acesso Restrito',
+        message: 'Somente o Administrador pode sincronizar os dados com o banco de dados.',
+        type: 'warning',
+      });
+      return;
+    }
+
     setExporting(true);
     try {
+      const adminCategories = filterNonDemoCategories(categories);
+      const adminProducts = filterNonDemoProducts(products);
+      const adminTables = filterNonDemoTables(tables);
+      const adminComandas = filterNonDemoComandas(comandas);
+      const adminCustomers = filterNonDemoCustomers(customers);
+      const adminOrders = filterNonDemoOrders(orders);
+      const adminWaiters = filterNonDemoWaiters(waiters);
+      const adminDrivers = filterNonDemoDrivers(drivers);
+      const adminUsers = filterNonDemoUsers(users);
+
       const res = await exportAllDataToSupabase({
         settings,
-        categories,
-        products,
-        tables,
-        comandas,
-        customers,
-        orders,
-        users,
+        categories: adminCategories,
+        products: adminProducts,
+        tables: adminTables,
+        comandas: adminComandas,
+        customers: adminCustomers,
+        orders: adminOrders,
+        waiters: adminWaiters,
+        drivers: adminDrivers,
+        users: adminUsers,
       });
 
       if (res.success) {
         addToast({
           title: 'Sincronização Concluída',
-          message: `${res.count} registros enviados para o banco de dados do Supabase!`,
+          message: `${res.count} registro(s) cadastrado(s) pelo administrador sincronizado(s) com o Supabase!`,
           type: 'success',
         });
       } else {
@@ -370,7 +407,7 @@ END $$;`;
               )}
             </h3>
             <p className="text-[11px] text-emerald-200/80 font-medium">
-              Sincronização na nuvem em tempo real de produtos, mesas, comandas, clientes e pedidos.
+              Sincronização exclusiva dos dados cadastrados pelo administrador (sem dados de demonstração).
             </p>
           </div>
         </div>
@@ -390,14 +427,22 @@ END $$;`;
           <button
             type="button"
             onClick={handleExportAll}
-            disabled={exporting}
+            disabled={exporting || !isAdmin}
+            title={!isAdmin ? 'Somente administradores podem sincronizar dados com o banco' : 'Enviar apenas os dados cadastrados pelo administrador'}
             className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm"
           >
             <UploadCloud className={`w-3.5 h-3.5 ${exporting ? 'animate-bounce' : ''}`} />
-            <span>{exporting ? 'Enviando Dados...' : 'Sincronizar Tudo'}</span>
+            <span>{exporting ? 'Sincronizando...' : 'Sincronizar Dados do Admin'}</span>
           </button>
         </div>
       </div>
+
+      {!isAdmin && (
+        <div className="p-2.5 rounded-xl text-xs font-medium bg-amber-900/40 border border-amber-500/40 text-amber-200 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>Somente usuários com perfil Administrador podem alterar credenciais ou sincronizar dados com o banco.</span>
+        </div>
+      )}
 
       {/* Test feedback */}
       {testResult && (
@@ -489,8 +534,9 @@ END $$;`;
           ) : (
             <button
               type="button"
-              onClick={() => setIsEditing(true)}
-              className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-800/80 rounded-lg font-medium transition cursor-pointer"
+              onClick={() => isAdmin && setIsEditing(true)}
+              disabled={!isAdmin}
+              className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-800/80 rounded-lg font-medium transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Alterar Credenciais
             </button>

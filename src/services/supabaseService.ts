@@ -1,5 +1,33 @@
 import { getSupabase, isSupabaseConfigured } from '../lib/supabase';
-import { Product, Category, Customer, Order, Table, Comanda, StoreSettings, AppUser, UserRole } from '../types';
+import { Product, Category, Customer, Order, Table, Comanda, StoreSettings, AppUser, UserRole, Waiter, DeliveryDriver } from '../types';
+import {
+  DEMO_CATEGORY_IDS,
+  DEMO_COMANDA_IDS,
+  DEMO_CUSTOMER_IDS,
+  DEMO_DRIVER_IDS,
+  DEMO_ORDER_IDS,
+  DEMO_PRODUCT_IDS,
+  DEMO_USER_IDS,
+  DEMO_WAITER_IDS,
+  filterNonDemoCategories,
+  filterNonDemoComandas,
+  filterNonDemoCustomers,
+  filterNonDemoDrivers,
+  filterNonDemoOrders,
+  filterNonDemoProducts,
+  filterNonDemoTables,
+  filterNonDemoUsers,
+  filterNonDemoWaiters,
+  isDemoCategory,
+  isDemoComanda,
+  isDemoCustomer,
+  isDemoDriver,
+  isDemoOrder,
+  isDemoProduct,
+  isDemoTable,
+  isDemoUser,
+  isDemoWaiter,
+} from '../utils/demoGuard';
 
 // Helper to safely parse JSON
 function safeParse<T>(data: any, fallback: T): T {
@@ -116,6 +144,7 @@ export async function syncCategoriesFromSupabase(): Promise<Category[] | null> {
 }
 
 export async function upsertCategoryToSupabase(cat: Category): Promise<boolean> {
+  if (isDemoCategory(cat)) return false;
   const supabase = getSupabase();
   if (!supabase) return false;
 
@@ -181,6 +210,7 @@ export async function syncProductsFromSupabase(): Promise<Product[] | null> {
 }
 
 export async function upsertProductToSupabase(product: Product): Promise<boolean> {
+  if (isDemoProduct(product)) return false;
   const supabase = getSupabase();
   if (!supabase) return false;
 
@@ -260,6 +290,7 @@ export async function syncOrdersFromSupabase(): Promise<Order[] | null> {
 }
 
 export async function upsertOrderToSupabase(order: Order): Promise<boolean> {
+  if (isDemoOrder(order)) return false;
   const supabase = getSupabase();
   if (!supabase) return false;
 
@@ -341,6 +372,7 @@ export async function syncTablesFromSupabase(): Promise<Table[] | null> {
 }
 
 export async function upsertTableToSupabase(table: Table): Promise<boolean> {
+  if (isDemoTable(table)) return false;
   const supabase = getSupabase();
   if (!supabase) return false;
 
@@ -408,6 +440,7 @@ export async function syncComandasFromSupabase(): Promise<Comanda[] | null> {
 }
 
 export async function upsertComandaToSupabase(comanda: Comanda): Promise<boolean> {
+  if (isDemoComanda(comanda)) return false;
   const supabase = getSupabase();
   if (!supabase) return false;
 
@@ -476,6 +509,7 @@ export async function syncCustomersFromSupabase(): Promise<Customer[] | null> {
 }
 
 export async function upsertCustomerToSupabase(customer: Customer): Promise<boolean> {
+  if (isDemoCustomer(customer)) return false;
   const supabase = getSupabase();
   if (!supabase) return false;
 
@@ -515,7 +549,30 @@ export async function deleteCustomerFromSupabase(id: string): Promise<boolean> {
 // ==========================================
 // WAITERS & DRIVERS
 // ==========================================
+export async function syncWaitersFromSupabase(): Promise<Waiter[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.from('waiters').select('*').order('name');
+    if (error) {
+      console.warn('[Supabase Sync Error - Waiters]:', error.message);
+      return null;
+    }
+    if (!data) return [];
+    return data.map((item: any) => ({
+      id: String(item.id),
+      name: item.name || '',
+      phone: item.phone || '',
+      status: (item.status === 'inativo' ? 'inativo' : 'ativo') as 'ativo' | 'inativo',
+      activeTables: Number(item.active_tables) || 0,
+    }));
+  } catch {
+    return null;
+  }
+}
+
 export async function upsertWaiterToSupabase(waiter: { id: string; name: string; phone?: string; status?: string; activeTables?: number }): Promise<boolean> {
+  if (isDemoWaiter(waiter)) return false;
   const supabase = getSupabase();
   if (!supabase) return false;
   try {
@@ -543,7 +600,30 @@ export async function deleteWaiterFromSupabase(id: string): Promise<boolean> {
   }
 }
 
+export async function syncDriversFromSupabase(): Promise<DeliveryDriver[] | null> {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.from('drivers').select('*').order('name');
+    if (error) {
+      console.warn('[Supabase Sync Error - Drivers]:', error.message);
+      return null;
+    }
+    if (!data) return [];
+    return data.map((item: any) => ({
+      id: String(item.id),
+      name: item.name || '',
+      phone: item.phone || '',
+      status: (['disponivel', 'em_rota', 'indisponivel'].includes(item.status) ? item.status : 'disponivel') as DeliveryDriver['status'],
+      completedToday: Number(item.completed_today) || 0,
+    }));
+  } catch {
+    return null;
+  }
+}
+
 export async function upsertDriverToSupabase(driver: { id: string; name: string; phone?: string; status?: string; completedToday?: number }): Promise<boolean> {
+  if (isDemoDriver(driver)) return false;
   const supabase = getSupabase();
   if (!supabase) return false;
   try {
@@ -610,6 +690,7 @@ export async function syncUsersFromSupabase(): Promise<AppUser[] | null> {
 }
 
 export async function upsertUserToSupabase(user: AppUser): Promise<boolean> {
+  if (isDemoUser(user)) return false;
   const supabase = getSupabase();
   if (!supabase) return false;
 
@@ -781,7 +862,63 @@ export async function upsertStoreSettingsToSupabase(settings: StoreSettings): Pr
 }
 
 // ==========================================
-// EXPORT / PUSH ALL DATA
+// CLEAN LEGACY DEMO RECORDS FROM SUPABASE
+// ==========================================
+export async function purgeLegacyDemoRecordsFromSupabase(): Promise<number> {
+  const supabase = getSupabase();
+  if (!supabase) return 0;
+
+  let removed = 0;
+  try {
+    const deleteByIds = async (table: string, ids: string[]) => {
+      if (ids.length === 0) return;
+      const { error } = await supabase.from(table).delete().in('id', ids);
+      if (!error) removed += ids.length;
+    };
+
+    await Promise.all([
+      deleteByIds('categories', Array.from(DEMO_CATEGORY_IDS)),
+      deleteByIds('products', Array.from(DEMO_PRODUCT_IDS)),
+      deleteByIds('customers', Array.from(DEMO_CUSTOMER_IDS)),
+      deleteByIds('orders', Array.from(DEMO_ORDER_IDS)),
+      deleteByIds('comandas', Array.from(DEMO_COMANDA_IDS)),
+      deleteByIds('waiters', Array.from(DEMO_WAITER_IDS)),
+      deleteByIds('drivers', Array.from(DEMO_DRIVER_IDS)),
+      deleteByIds('app_users', Array.from(DEMO_USER_IDS)),
+    ]);
+
+    // Remove demo tables only if they still match the demo signature (waiter Lucas/Fernanda or Reserva Família Costa)
+    try {
+      const { data: supTables } = await supabase.from('tables').select('*');
+      if (Array.isArray(supTables)) {
+        const demoTableIds = supTables
+          .filter((row: any) =>
+            isDemoTable({
+              id: Number(row.id),
+              name: row.name,
+              capacity: row.capacity,
+              status: row.status,
+              currentOrderIds: safeParse(row.current_order_ids, []),
+              waiterName: row.waiter_name,
+              customerName: row.customer_name,
+            })
+          )
+          .map((row: any) => Number(row.id));
+
+        if (demoTableIds.length > 0) {
+          await supabase.from('tables').delete().in('id', demoTableIds);
+          removed += demoTableIds.length;
+        }
+      }
+    } catch {}
+  } catch (err) {
+    console.warn('[Supabase Demo Cleanup Warning]:', err);
+  }
+  return removed;
+}
+
+// ==========================================
+// EXPORT / PUSH ONLY ADMIN-REGISTERED DATA
 // ==========================================
 export async function exportAllDataToSupabase(data: {
   settings?: StoreSettings;
@@ -791,6 +928,8 @@ export async function exportAllDataToSupabase(data: {
   comandas?: Comanda[];
   customers?: Customer[];
   orders?: Order[];
+  waiters?: Waiter[];
+  drivers?: DeliveryDriver[];
   users?: AppUser[];
 }): Promise<{ success: boolean; count: number; error?: string }> {
   if (!isSupabaseConfigured()) {
@@ -799,51 +938,57 @@ export async function exportAllDataToSupabase(data: {
 
   let totalUpserted = 0;
   try {
+    // Ensure any legacy demo rows in Supabase are cleaned up before syncing admin records
+    await purgeLegacyDemoRecordsFromSupabase();
+
     if (data.settings) {
-      await upsertStoreSettingsToSupabase(data.settings);
-      totalUpserted++;
+      const ok = await upsertStoreSettingsToSupabase(data.settings);
+      if (ok) totalUpserted++;
     }
-    if (data.categories) {
-      for (const cat of data.categories) {
-        await upsertCategoryToSupabase(cat);
-        totalUpserted++;
-      }
+
+    const adminCategories = filterNonDemoCategories(data.categories || []);
+    for (const cat of adminCategories) {
+      if (await upsertCategoryToSupabase(cat)) totalUpserted++;
     }
-    if (data.products) {
-      for (const prod of data.products) {
-        await upsertProductToSupabase(prod);
-        totalUpserted++;
-      }
+
+    const adminProducts = filterNonDemoProducts(data.products || []);
+    for (const prod of adminProducts) {
+      if (await upsertProductToSupabase(prod)) totalUpserted++;
     }
-    if (data.tables) {
-      for (const tbl of data.tables) {
-        await upsertTableToSupabase(tbl);
-        totalUpserted++;
-      }
+
+    const adminTables = filterNonDemoTables(data.tables || []);
+    for (const tbl of adminTables) {
+      if (await upsertTableToSupabase(tbl)) totalUpserted++;
     }
-    if (data.comandas) {
-      for (const com of data.comandas) {
-        await upsertComandaToSupabase(com);
-        totalUpserted++;
-      }
+
+    const adminComandas = filterNonDemoComandas(data.comandas || []);
+    for (const com of adminComandas) {
+      if (await upsertComandaToSupabase(com)) totalUpserted++;
     }
-    if (data.customers) {
-      for (const cust of data.customers) {
-        await upsertCustomerToSupabase(cust);
-        totalUpserted++;
-      }
+
+    const adminCustomers = filterNonDemoCustomers(data.customers || []);
+    for (const cust of adminCustomers) {
+      if (await upsertCustomerToSupabase(cust)) totalUpserted++;
     }
-    if (data.orders) {
-      for (const ord of data.orders) {
-        await upsertOrderToSupabase(ord);
-        totalUpserted++;
-      }
+
+    const adminOrders = filterNonDemoOrders(data.orders || []);
+    for (const ord of adminOrders) {
+      if (await upsertOrderToSupabase(ord)) totalUpserted++;
     }
-    if (data.users) {
-      for (const usr of data.users) {
-        await upsertUserToSupabase(usr);
-        totalUpserted++;
-      }
+
+    const adminWaiters = filterNonDemoWaiters(data.waiters || []);
+    for (const w of adminWaiters) {
+      if (await upsertWaiterToSupabase(w)) totalUpserted++;
+    }
+
+    const adminDrivers = filterNonDemoDrivers(data.drivers || []);
+    for (const d of adminDrivers) {
+      if (await upsertDriverToSupabase(d)) totalUpserted++;
+    }
+
+    const adminUsers = filterNonDemoUsers(data.users || []);
+    for (const usr of adminUsers) {
+      if (await upsertUserToSupabase(usr)) totalUpserted++;
     }
 
     return { success: true, count: totalUpserted };

@@ -26,9 +26,25 @@ import {
   syncTablesFromSupabase,
   syncComandasFromSupabase,
   syncCustomersFromSupabase,
+  syncWaitersFromSupabase,
+  syncDriversFromSupabase,
   syncStoreSettingsFromSupabase,
+  purgeLegacyDemoRecordsFromSupabase,
   exportAllDataToSupabase,
 } from '../services/supabaseService';
+import {
+  filterNonDemoCategories,
+  filterNonDemoComandas,
+  filterNonDemoCustomers,
+  filterNonDemoDrivers,
+  filterNonDemoOrders,
+  filterNonDemoProducts,
+  filterNonDemoTables,
+  filterNonDemoUsers,
+  filterNonDemoWaiters,
+  purgeDemoDataFromLocalStorage,
+  sanitizeDemoSettings,
+} from '../utils/demoGuard';
 import {
   handleDigitalMenuOrderAlerts,
   getAlertedOrderIds,
@@ -138,9 +154,10 @@ interface AppContextType {
   // Users & Auth
   users: AppUser[];
   currentUser: AppUser | null;
+  isSyncingInitialData: boolean;
   loginUser: (identifier: string, pinInput?: string) => { success: boolean; message?: string };
   logoutUser: () => void;
-  addUser: (user: Omit<AppUser, 'id'>) => void;
+  addUser: (user: Omit<AppUser, 'id'>, autoLogin?: boolean) => void;
   updateUser: (id: string, user: Partial<AppUser>) => void;
   deleteUser: (id: string) => void;
 
@@ -332,6 +349,9 @@ const safeSetItem = (key: string, value: string): boolean => {
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Run one-time scrub of legacy system demo records before reading initial storage
+  purgeDemoDataFromLocalStorage();
+  const [isSyncingInitialData, setIsSyncingInitialData] = useState<boolean>(true);
   const [activeTab, setActiveTabState] = useState<NavigationTab>(() => {
     if (typeof window !== 'undefined' && window.location) {
       const search = window.location.search.toLowerCase();
@@ -643,12 +663,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
-  // Supabase Initial Sync (loads remote data if Supabase is configured)
+  // Supabase Initial Sync (loads remote admin-registered data if Supabase is configured)
   useEffect(() => {
     let isMounted = true;
     async function loadFromSupabase() {
       try {
-        const [supSettings, supCategories, supProducts, supTables, supComandas, supCustomers, supOrders, supUsers] = await Promise.all([
+        const [
+          supSettings,
+          supCategories,
+          supProducts,
+          supTables,
+          supComandas,
+          supCustomers,
+          supOrders,
+          supUsers,
+          supWaiters,
+          supDrivers,
+        ] = await Promise.all([
           syncStoreSettingsFromSupabase(),
           syncCategoriesFromSupabase(),
           syncProductsFromSupabase(),
@@ -657,17 +688,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           syncCustomersFromSupabase(),
           syncOrdersFromSupabase(),
           syncUsersFromSupabase(),
+          syncWaitersFromSupabase(),
+          syncDriversFromSupabase(),
         ]);
 
         if (!isMounted) return;
-        if (supSettings) setSettings(supSettings);
-        if (supCategories && supCategories.length > 0) setCategories(supCategories);
-        if (supProducts && supProducts.length > 0) setProducts(supProducts);
-        if (supTables && supTables.length > 0) setTables(supTables);
-        if (supComandas && supComandas.length > 0) setComandas(supComandas);
-        if (supCustomers && supCustomers.length > 0) setCustomers(supCustomers);
-        if (supUsers && supUsers.length > 0) setUsers(supUsers);
-        if (supOrders && supOrders.length > 0) {
+
+        // Filter out any legacy system demo rows that might still exist in Supabase
+        const cleanCategories = supCategories ? filterNonDemoCategories(supCategories) : null;
+        const cleanProducts = supProducts ? filterNonDemoProducts(supProducts) : null;
+        const cleanTables = supTables ? filterNonDemoTables(supTables) : null;
+        const cleanComandas = supComandas ? filterNonDemoComandas(supComandas) : null;
+        const cleanCustomers = supCustomers ? filterNonDemoCustomers(supCustomers) : null;
+        const cleanOrders = supOrders ? filterNonDemoOrders(supOrders) : null;
+        const cleanUsers = supUsers ? filterNonDemoUsers(supUsers) : null;
+        const cleanWaiters = supWaiters ? filterNonDemoWaiters(supWaiters) : null;
+        const cleanDrivers = supDrivers ? filterNonDemoDrivers(supDrivers) : null;
+
+        // If any legacy demo records were detected in Supabase, clean them automatically
+        const hadLegacyDemoInSupabase =
+          (supCategories && cleanCategories && supCategories.length !== cleanCategories.length) ||
+          (supProducts && cleanProducts && supProducts.length !== cleanProducts.length) ||
+          (supTables && cleanTables && supTables.length !== cleanTables.length) ||
+          (supComandas && cleanComandas && supComandas.length !== cleanComandas.length) ||
+          (supCustomers && cleanCustomers && supCustomers.length !== cleanCustomers.length) ||
+          (supOrders && cleanOrders && supOrders.length !== cleanOrders.length) ||
+          (supUsers && cleanUsers && supUsers.length !== cleanUsers.length) ||
+          (supWaiters && cleanWaiters && supWaiters.length !== cleanWaiters.length) ||
+          (supDrivers && cleanDrivers && supDrivers.length !== cleanDrivers.length);
+
+        if (hadLegacyDemoInSupabase) {
+          purgeLegacyDemoRecordsFromSupabase().catch(() => {});
+        }
+
+        if (supSettings) setSettings(sanitizeDemoSettings(supSettings));
+        if (cleanCategories && cleanCategories.length > 0) setCategories(cleanCategories);
+        if (cleanProducts && cleanProducts.length > 0) setProducts(cleanProducts);
+        if (cleanTables && cleanTables.length > 0) setTables(cleanTables);
+        if (cleanComandas && cleanComandas.length > 0) setComandas(cleanComandas);
+        if (cleanCustomers && cleanCustomers.length > 0) setCustomers(cleanCustomers);
+        if (cleanUsers && cleanUsers.length > 0) setUsers(cleanUsers);
+        if (cleanWaiters && cleanWaiters.length > 0) setWaiters(cleanWaiters);
+        if (cleanDrivers && cleanDrivers.length > 0) setDrivers(cleanDrivers);
+        if (cleanOrders && cleanOrders.length > 0) {
           // Read set of deleted order IDs to prevent deleted orders from re-appearing
           let deletedIds = new Set<string>();
           try {
@@ -675,7 +738,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (raw) deletedIds = new Set(JSON.parse(raw));
           } catch {}
 
-          const validOrders = supOrders.filter((o) => o?.id && !deletedIds.has(String(o.id).trim()));
+          const validOrders = cleanOrders.filter((o) => o?.id && !deletedIds.has(String(o.id).trim()));
 
           // Pre-seed all existing remote orders so they NEVER trigger false alerts on page load/refresh
           validOrders.forEach((o) => {
@@ -689,6 +752,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       } catch (err) {
         // Fallback to local storage
         isBootstrapReadyRef.current = true;
+      } finally {
+        if (isMounted) {
+          setIsSyncingInitialData(false);
+        }
       }
     }
     loadFromSupabase();
@@ -712,7 +779,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (raw) deletedIds = new Set(JSON.parse(raw));
           } catch {}
 
-          const validOrders = supOrders.filter((o) => o?.id && !deletedIds.has(String(o.id).trim()));
+          const validOrders = filterNonDemoOrders(supOrders).filter(
+            (o) => o?.id && !deletedIds.has(String(o.id).trim())
+          );
           let hasNewOrders = false;
           validOrders.forEach((ord) => {
             const ordIdStr = String(ord.id || '').trim();
@@ -825,13 +894,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const addUser = (userData: Omit<AppUser, 'id'>) => {
+  const addUser = (userData: Omit<AppUser, 'id'>, autoLogin?: boolean) => {
     const newUser: AppUser = {
       ...userData,
       id: `usr-${Date.now()}`,
     };
     setUsers((prev) => [newUser, ...prev]);
     upsertUserToSupabase(newUser).catch(() => {});
+
+    if (autoLogin && users.length === 0 && newUser.role === 'admin') {
+      try {
+        sessionStorage.setItem('fzp_admin_session', JSON.stringify(newUser));
+        localStorage.removeItem('fzp_current_user');
+        localStorage.removeItem('fzp_user_logged_out');
+      } catch {}
+      setCurrentUser(newUser);
+      setViewMode('admin');
+    }
+
     addToast({
       title: 'Usuário criado com sucesso',
       message: `Novo ${userData.role === 'admin' ? 'Administrador' : 'Garçom'} adicionado: ${userData.name}`,
@@ -1008,19 +1088,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         throw new Error('Formato JSON inválido');
       }
 
-      if (parsed.settings) setSettings(parsed.settings);
-      if (Array.isArray(parsed.products)) setProducts(parsed.products);
-      if (Array.isArray(parsed.categories)) setCategories(parsed.categories);
-      if (Array.isArray(parsed.customers)) setCustomers(parsed.customers);
-      if (Array.isArray(parsed.orders)) setOrders(parsed.orders);
-      if (Array.isArray(parsed.tables)) setTables(parsed.tables);
-      if (Array.isArray(parsed.comandas)) setComandas(parsed.comandas);
-      if (Array.isArray(parsed.users)) setUsers(parsed.users);
-      if (Array.isArray(parsed.waiters)) setWaiters(parsed.waiters);
-      if (Array.isArray(parsed.drivers)) setDrivers(parsed.drivers);
+      if (parsed.settings) setSettings(sanitizeDemoSettings(parsed.settings));
+      if (Array.isArray(parsed.products)) setProducts(filterNonDemoProducts(parsed.products));
+      if (Array.isArray(parsed.categories)) setCategories(filterNonDemoCategories(parsed.categories));
+      if (Array.isArray(parsed.customers)) setCustomers(filterNonDemoCustomers(parsed.customers));
+      if (Array.isArray(parsed.orders)) setOrders(filterNonDemoOrders(parsed.orders));
+      if (Array.isArray(parsed.tables)) setTables(filterNonDemoTables(parsed.tables));
+      if (Array.isArray(parsed.comandas)) setComandas(filterNonDemoComandas(parsed.comandas));
+      if (Array.isArray(parsed.users)) setUsers(filterNonDemoUsers(parsed.users));
+      if (Array.isArray(parsed.waiters)) setWaiters(filterNonDemoWaiters(parsed.waiters));
+      if (Array.isArray(parsed.drivers)) setDrivers(filterNonDemoDrivers(parsed.drivers));
 
-      // Async sync to Supabase if configured
-      exportAllDataToSupabase(parsed).catch(() => {});
+      // Async sync to Supabase only for admin-registered records
+      if (currentUser?.role === 'admin') {
+        exportAllDataToSupabase(parsed).catch(() => {});
+      }
 
       const nowIso = new Date().toISOString();
       localStorage.setItem('fzp_last_backup_time', nowIso);
@@ -1818,6 +1900,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setViewMode,
         users,
         currentUser,
+        isSyncingInitialData,
         loginUser,
         logoutUser,
         addUser,

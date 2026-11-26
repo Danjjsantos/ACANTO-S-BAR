@@ -16,7 +16,7 @@ export const EntregadoresList: React.FC = () => {
     if (!name.trim()) return;
     addDriver({
       name: name.trim(),
-      phone: phone.trim() || '5511988880000',
+      phone: phone.trim(),
     });
     setName('');
     setPhone('');
@@ -43,48 +43,58 @@ export const EntregadoresList: React.FC = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {drivers.map((d) => (
-          <div key={d.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-3 relative group">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 font-extrabold flex items-center justify-center text-sm">
-                  {d.name.charAt(0)}
+      {drivers.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">
+          <Truck className="w-10 h-10 mx-auto mb-2 opacity-40" />
+          <p className="text-sm font-bold text-slate-600">Nenhum entregador cadastrado</p>
+          <p className="text-xs mt-1">Clique em &quot;Novo Entregador&quot; para cadastrar sua equipe de entrega.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {drivers.map((d) => (
+            <div key={d.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-3 relative group">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 font-extrabold flex items-center justify-center text-sm">
+                    {d.name.charAt(0)}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm">{d.name}</h3>
+                    {d.phone && (
+                      <p className="text-xs text-slate-500 flex items-center gap-1">
+                        <Phone className="w-3 h-3" /> {d.phone}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 text-sm">{d.name}</h3>
-                  <p className="text-xs text-slate-500 flex items-center gap-1">
-                    <Phone className="w-3 h-3" /> {d.phone}
-                  </p>
+
+                <div className="flex items-center gap-1">
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                      d.status === 'em_rota' ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'
+                    }`}
+                  >
+                    {d.status === 'em_rota' ? 'Em Rota' : 'Disponível'}
+                  </span>
+
+                  <button
+                    onClick={() => setDriverToDelete(d)}
+                    title="Remover Entregador"
+                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1">
-                <span
-                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
-                    d.status === 'em_rota' ? 'bg-purple-100 text-purple-800' : 'bg-emerald-100 text-emerald-800'
-                  }`}
-                >
-                  {d.status === 'em_rota' ? 'Em Rota' : 'Disponível'}
-                </span>
-
-                <button
-                  onClick={() => setDriverToDelete(d)}
-                  title="Remover Entregador"
-                  className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+              <div className="p-3 bg-slate-50 rounded-xl text-xs flex justify-between font-medium">
+                <span>Entregas Concluídas Hoje:</span>
+                <strong className="text-blue-700 font-bold">{d.completedToday} entregas</strong>
               </div>
             </div>
-
-            <div className="p-3 bg-slate-50 rounded-xl text-xs flex justify-between font-medium">
-              <span>Entregas Concluídas Hoje:</span>
-              <strong className="text-blue-700 font-bold">{d.completedToday} entregas</strong>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* NEW DRIVER MODAL */}
       {showAddModal && (

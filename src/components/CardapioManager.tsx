@@ -684,11 +684,15 @@ export const CardapioManager: React.FC = () => {
                       onChange={(e) => setProdCatId(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-purple-500 focus:outline-none"
                     >
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.icon} {c.name}
-                        </option>
-                      ))}
+                      {categories.length === 0 ? (
+                        <option value="">Cadastre uma categoria primeiro</option>
+                      ) : (
+                        categories.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.icon} {c.name}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
                 </div>

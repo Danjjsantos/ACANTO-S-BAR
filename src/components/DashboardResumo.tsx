@@ -65,7 +65,7 @@ export const DashboardResumo: React.FC = () => {
               </span>
             ) : (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                +14%
+                {paidOrders.length} pago(s)
               </span>
             )}
           </div>
@@ -221,49 +221,79 @@ export const DashboardResumo: React.FC = () => {
             </div>
           </div>
           <div className="space-y-1.5">
-            {waiters.map((w) => (
-              <div key={w.id} className="flex items-center justify-between text-xs p-2 rounded-lg bg-slate-50">
-                <span className="font-medium text-slate-800">{w.name}</span>
-                <span className="text-slate-500 font-medium">{w.activeTables} mesas ativas</span>
-              </div>
-            ))}
+            {waiters.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-4">
+                Nenhum garçom cadastrado.
+              </p>
+            ) : (
+              waiters.map((w) => (
+                <div key={w.id} className="flex items-center justify-between text-xs p-2 rounded-lg bg-slate-50">
+                  <span className="font-medium text-slate-800">{w.name}</span>
+                  <span className="text-slate-500 font-medium">{w.activeTables} mesas ativas</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
-        {/* Vendas (7 dias) Chart */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs md:col-span-2">
-          <h4 className="font-bold text-slate-900 text-xs uppercase mb-3 flex items-center justify-between">
-            <span>VENDAS (7 DIAS)</span>
-            <span className="text-emerald-600 font-bold text-xs">+28% este mês</span>
-          </h4>
-          <div className="flex items-end justify-between gap-1.5 h-32 pt-4 border-b border-slate-100 pb-2">
-            {[
-              { day: 'Ter', value: 340, height: '40%' },
-              { day: 'Qua', value: 480, height: '55%' },
-              { day: 'Qui', value: 620, height: '70%' },
-              { day: 'Sex', value: 980, height: '95%' },
-              { day: 'Sáb', value: 1120, height: '100%' },
-              { day: 'Dom', value: 890, height: '85%' },
-              { day: 'Seg', value: 450, height: '50%' },
-            ].map((bar, idx) => (
-              <div key={idx} className="flex-1 flex flex-col items-center gap-1 group">
-                <span className="text-[9px] text-slate-400 group-hover:text-purple-700 font-bold transition">
-                  {bar.value}
+        {/* Vendas (7 dias) Chart - Dados reais dos pedidos */}
+        {(() => {
+          const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+          const last7Days = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date();
+            d.setDate(d.getDate() - (6 - i));
+            const iso = d.toISOString().split('T')[0];
+            const dayTotal = orders
+              .filter((o) => o.status !== 'cancelado' && o.createdAt?.startsWith(iso))
+              .reduce((sum, o) => sum + (o.total || 0), 0);
+            return {
+              day: dayNames[d.getDay()],
+              value: dayTotal,
+            };
+          });
+          const maxVal = Math.max(...last7Days.map((d) => d.value), 1);
+          const total7Days = last7Days.reduce((sum, d) => sum + d.value, 0);
+
+          return (
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs md:col-span-2">
+              <h4 className="font-bold text-slate-900 text-xs uppercase mb-3 flex items-center justify-between">
+                <span>VENDAS (ÚLTIMOS 7 DIAS)</span>
+                <span className="text-slate-500 font-bold text-xs">
+                  {total7Days > 0 ? 'Dados reais' : 'Sem vendas no período'}
                 </span>
-                <div
-                  className="w-full bg-purple-100 group-hover:bg-purple-600 rounded-t-md transition-all duration-300"
-                  style={{ height: bar.height }}
-                ></div>
-                <span className="text-[10px] font-semibold text-slate-500">{bar.day}</span>
+              </h4>
+              <div className="flex items-end justify-between gap-1.5 h-32 pt-4 border-b border-slate-100 pb-2">
+                {last7Days.map((bar, idx) => {
+                  const pct = bar.value > 0 ? Math.max(Math.round((bar.value / maxVal) * 100), 8) : 4;
+                  return (
+                    <div key={idx} className="flex-1 flex flex-col items-center gap-1 group h-full justify-end">
+                      <span className="text-[9px] text-slate-400 group-hover:text-purple-700 font-bold transition">
+                        {bar.value > 0 ? `R$${bar.value.toFixed(0)}` : '0'}
+                      </span>
+                      <div
+                        className={`w-full rounded-t-md transition-all duration-300 ${
+                          bar.value > 0
+                            ? 'bg-purple-200 group-hover:bg-purple-600'
+                            : 'bg-slate-100'
+                        }`}
+                        style={{ height: `${pct}%` }}
+                      ></div>
+                      <span className="text-[10px] font-semibold text-slate-500">{bar.day}</span>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
-          <div className="mt-3 text-center">
-            <span className="text-xs text-slate-500 font-medium">
-              Total 7 dias: <strong className="text-slate-900">R$ 4.880,00</strong>
-            </span>
-          </div>
-        </div>
+              <div className="mt-3 text-center">
+                <span className="text-xs text-slate-500 font-medium">
+                  Total 7 dias:{' '}
+                  <strong className="text-slate-900">
+                    R$ {total7Days.toFixed(2).replace('.', ',')}
+                  </strong>
+                </span>
+              </div>
+            </div>
+          );
+        })()}
 
       </div>
     </div>

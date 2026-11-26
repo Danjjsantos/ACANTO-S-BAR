@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '../context/AppContext';
-import { Table, Product, CartItem, PaymentMethod } from '../types';
+import { Table, Product, CartItem, PaymentMethod, BasePaymentMethod } from '../types';
 import { PixQrCodeDisplay } from './PixQrCodeDisplay';
+import { BASE_PAYMENT_OPTIONS, formatPaymentMethodLabel } from '../utils/paymentHelper';
 import {
   UtensilsCrossed,
   Plus,
@@ -32,6 +33,7 @@ export const MesasComandas: React.FC = () => {
     comandas,
     createComanda,
     addItemToComanda,
+    addComandaPartialPayment,
     closeComanda,
     products,
     waiters,
@@ -71,6 +73,13 @@ export const MesasComandas: React.FC = () => {
   const [closingTable, setClosingTable] = useState<Table | null>(null);
   const [closePaymentMethod, setClosePaymentMethod] = useState<PaymentMethod>('pix');
   const [closeIncludeServiceFee, setCloseIncludeServiceFee] = useState(false);
+  const [closePartialPaidInput, setClosePartialPaidInput] = useState<string>('');
+  const [closePartialMethod, setClosePartialMethod] = useState<BasePaymentMethod>('pix');
+
+  // Advance Partial Payment inside open table
+  const [showTableAdvancePartial, setShowTableAdvancePartial] = useState(false);
+  const [advancePartialInput, setAdvancePartialInput] = useState<string>('');
+  const [advancePartialMethod, setAdvancePartialMethod] = useState<BasePaymentMethod>('pix');
 
   // Table Delete confirmation
   const [tableToDelete, setTableToDelete] = useState<Table | null>(null);
@@ -187,6 +196,7 @@ export const MesasComandas: React.FC = () => {
       });
       return;
     }
+    setClosePartialPaidInput('');
     setClosingTable(tbl);
     setShowCloseBillModal(true);
   };
@@ -197,15 +207,48 @@ export const MesasComandas: React.FC = () => {
     const comanda = getComandaForTable(closingTable.id);
     if (!comanda) return;
 
-    try {
-      const subtotal = comanda.total || 0;
-      const serviceFee = closeIncludeServiceFee ? subtotal * 0.10 : 0;
+    const subtotal = comanda.total || 0;
+    const serviceFee = closeIncludeServiceFee ? subtotal * 0.10 : 0;
+    const grandTotal = +(subtotal + serviceFee).toFixed(2);
+    const alreadyPaid = Math.max(0, Number(comanda.paidAmount) || 0);
+    const remainingBefore = Math.max(0, +(grandTotal - alreadyPaid).toFixed(2));
+    const paidNow = Math.max(0, +(Number(String(closePartialPaidInput).replace(',', '.')) || 0).toFixed(2));
 
-      closeComanda(comanda.id, closePaymentMethod, serviceFee);
+    if (closePaymentMethod === 'parcial') {
+      if (paidNow <= 0 && alreadyPaid <= 0) {
+        addToast({
+          title: 'Informe o Valor Pago Agora',
+          message: 'Digite quanto o cliente está pagando neste momento (ou selecione PG para deixar 100% em aberto).',
+          type: 'warning',
+        });
+        return;
+      }
+      if (paidNow >= remainingBefore && remainingBefore > 0) {
+        addToast({
+          title: 'Valor Cobre 100% do Restante',
+          message: 'O valor digitado quita toda a conta. Selecione a forma de pagamento integral ou informe um valor menor.',
+          type: 'warning',
+        });
+        return;
+      }
+    }
+
+    try {
+      closeComanda(
+        comanda.id,
+        closePaymentMethod,
+        serviceFee,
+        closePaymentMethod === 'parcial'
+          ? { amountPaidNow: paidNow, method: closePartialMethod }
+          : undefined
+      );
 
       addToast({
-        title: `Conta Fechada — ${closingTable.name}`,
-        message: `Mesa finalizada com sucesso. Pagamento via ${closePaymentMethod.replace('_', ' ').toUpperCase()}.`,
+        title: closePaymentMethod === 'parcial' ? `Fechamento Parcial — ${closingTable.name}` : `Conta Fechada — ${closingTable.name}`,
+        message:
+          closePaymentMethod === 'parcial'
+            ? `Pago R$ ${(alreadyPaid + paidNow).toFixed(2).replace('.', ',')}. Saldo de R$ ${Math.max(0, remainingBefore - paidNow).toFixed(2).replace('.', ',')} deixado em aberto.`
+            : `Mesa finalizada com sucesso. Pagamento via ${closePaymentMethod.replace('_', ' ').toUpperCase()}.`,
         type: 'success',
         skipSound: true,
       });
@@ -215,6 +258,7 @@ export const MesasComandas: React.FC = () => {
       setShowCloseBillModal(false);
       setClosingTable(null);
       setSelectedTable(null);
+      setClosePartialPaidInput('');
     }
   };
 
@@ -551,10 +595,100 @@ export const MesasComandas: React.FC = () => {
                         ))}
                       </div>
 
-                      <div className="pt-2 border-t border-slate-200 flex items-center justify-between font-extrabold text-sm text-slate-900">
-                        <span>Total da Mesa:</span>
-                        <span className="text-purple-700">R$ {totalBill.toFixed(2).replace('.', ',')}</span>
+                      <div className="pt-2 border-t border-slate-200 space-y-1 text-sm text-slate-900">
+                        <div className="flex items-center justify-between font-extrabold">
+                          <span>Total da Mesa:</span>
+                          <span className="text-purple-700">R$ {totalBill.toFixed(2).replace('.', ',')}</span>
+                        </div>
+                        {(openComanda.paidAmount || 0) > 0 && (
+                          <>
+                            <div className="flex items-center justify-between text-xs font-bold text-emerald-700">
+                              <span>Já Pago (Abatimentos):</span>
+                              <span>- R$ {(openComanda.paidAmount || 0).toFixed(2).replace('.', ',')}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs font-black text-amber-800 border-t border-slate-200 pt-1">
+                              <span>Restante em Aberto:</span>
+                              <span>R$ {Math.max(0, totalBill - (openComanda.paidAmount || 0)).toFixed(2).replace('.', ',')}</span>
+                            </div>
+                          </>
+                        )}
                       </div>
+                    </div>
+
+                    {/* Advance Partial Payment on Open Table */}
+                    <div className="p-3 bg-indigo-50 rounded-2xl border border-indigo-200 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-indigo-950">
+                          🌓 Pagamento Parcial / Abatimento na Mesa
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowTableAdvancePartial((v) => !v)}
+                          className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-lg cursor-pointer transition"
+                        >
+                          {showTableAdvancePartial ? 'Fechar' : '+ Lançar Parcial'}
+                        </button>
+                      </div>
+
+                      {openComanda.partialPayments && openComanda.partialPayments.length > 0 && (
+                        <div className="space-y-1 text-[11px] text-indigo-900 bg-white/80 p-2 rounded-xl border border-indigo-100">
+                          {openComanda.partialPayments.map((pp) => (
+                            <div key={pp.id} className="flex justify-between font-semibold">
+                              <span>✓ {formatPaymentMethodLabel(pp.method)}</span>
+                              <span>R$ {pp.amount.toFixed(2).replace('.', ',')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {showTableAdvancePartial && (
+                        <div className="space-y-2 pt-1 border-t border-indigo-200/70">
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              max={Math.max(0, totalBill - (openComanda.paidAmount || 0))}
+                              value={advancePartialInput}
+                              onChange={(e) => setAdvancePartialInput(e.target.value)}
+                              placeholder="Valor pago (R$)"
+                              className="px-2.5 py-1.5 bg-white border border-indigo-300 rounded-lg text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                            <select
+                              value={advancePartialMethod}
+                              onChange={(e) => setAdvancePartialMethod(e.target.value as BasePaymentMethod)}
+                              className="px-2.5 py-1.5 bg-white border border-indigo-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-none"
+                            >
+                              {BASE_PAYMENT_OPTIONS.map((opt) => (
+                                <option key={opt.id} value={opt.id}>
+                                  {opt.shortLabel}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const val = +(Number(String(advancePartialInput).replace(',', '.')) || 0).toFixed(2);
+                              const rem = Math.max(0, totalBill - (openComanda.paidAmount || 0));
+                              if (val <= 0 || val > rem) {
+                                addToast({
+                                  title: 'Valor Inválido',
+                                  message: `Informe um valor entre R$ 0,01 e R$ ${rem.toFixed(2).replace('.', ',')}.`,
+                                  type: 'warning',
+                                });
+                                return;
+                              }
+                              addComandaPartialPayment(openComanda.id, val, advancePartialMethod);
+                              setAdvancePartialInput('');
+                              setShowTableAdvancePartial(false);
+                            }}
+                            className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl cursor-pointer transition"
+                          >
+                            Confirmar Abatimento na Mesa
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Split Bill Calculator */}
@@ -632,7 +766,14 @@ export const MesasComandas: React.FC = () => {
 
                 const subtotal = comanda.total;
                 const serviceFee = closeIncludeServiceFee ? subtotal * 0.10 : 0;
-                const grandTotal = subtotal + serviceFee;
+                const grandTotal = +(subtotal + serviceFee).toFixed(2);
+                const alreadyPaid = Math.max(0, Number(comanda.paidAmount) || 0);
+                const remainingDue = Math.max(0, +(grandTotal - alreadyPaid).toFixed(2));
+                const parsedPartialNow = Math.min(
+                  remainingDue,
+                  Math.max(0, +(Number(String(closePartialPaidInput).replace(',', '.')) || 0).toFixed(2))
+                );
+                const partialOpenAfter = Math.max(0, +(remainingDue - parsedPartialNow).toFixed(2));
 
                 return (
                   <>
@@ -660,14 +801,27 @@ export const MesasComandas: React.FC = () => {
                             onChange={(e) => setCloseIncludeServiceFee(e.target.checked)}
                             className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
                           />
-                          Taxa de Serviço 10% (+ R$ { (subtotal * 0.10).toFixed(2).replace('.', ',') })
+                          Taxa de Serviço 10% (+ R$ {(subtotal * 0.10).toFixed(2).replace('.', ',')})
                         </label>
                       </div>
 
+                      {alreadyPaid > 0 && (
+                        <div className="pt-1.5 border-t border-slate-200 space-y-1 text-xs">
+                          <div className="flex justify-between text-slate-700 font-semibold">
+                            <span>Total Consumido:</span>
+                            <span>R$ {grandTotal.toFixed(2).replace('.', ',')}</span>
+                          </div>
+                          <div className="flex justify-between text-emerald-700 font-bold">
+                            <span>Já Pago (Parcial na Mesa):</span>
+                            <span>- R$ {alreadyPaid.toFixed(2).replace('.', ',')}</span>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Total Box */}
                       <div className="pt-2 border-t border-slate-200 flex items-center justify-between text-base font-extrabold text-slate-900">
-                        <span>TOTAL A PAGAR:</span>
-                        <span className="text-emerald-700 text-lg">R$ {grandTotal.toFixed(2).replace('.', ',')}</span>
+                        <span>{alreadyPaid > 0 ? 'RESTANTE A PAGAR:' : 'TOTAL A PAGAR:'}</span>
+                        <span className="text-emerald-700 text-lg">R$ {remainingDue.toFixed(2).replace('.', ',')}</span>
                       </div>
                     </div>
 
@@ -682,7 +836,8 @@ export const MesasComandas: React.FC = () => {
                           { id: 'cartao_credito', label: '💳 Cartão Crédito', desc: 'Maquininha balcão' },
                           { id: 'cartao_debito', label: '💳 Cartão Débito', desc: 'Maquininha balcão' },
                           { id: 'dinheiro', label: '💵 Dinheiro', desc: 'Pagamento em espécie' },
-                          { id: 'pg', label: '📌 PG (A Receber)', desc: 'Pendência a ser quitada' },
+                          { id: 'parcial', label: '🌓 Pagamento Parcial', desc: 'Paga parte e deixa restante em aberto' },
+                          { id: 'pg', label: '📌 PG (A Receber)', desc: 'Pendência integral' },
                         ].map((pm) => (
                           <button
                             key={pm.id}
@@ -692,9 +847,11 @@ export const MesasComandas: React.FC = () => {
                               closePaymentMethod === pm.id
                                 ? pm.id === 'pg'
                                   ? 'bg-amber-50 border-amber-600 text-amber-950 ring-2 ring-amber-500/20'
+                                  : pm.id === 'parcial'
+                                  ? 'bg-indigo-50 border-indigo-600 text-indigo-950 ring-2 ring-indigo-500/20'
                                   : 'bg-emerald-50 border-emerald-600 text-emerald-950 ring-2 ring-emerald-500/20'
                                 : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                            } ${pm.id === 'pg' ? 'col-span-2' : ''}`}
+                            }`}
                           >
                             <span className="font-extrabold text-xs">{pm.label}</span>
                             <span className="text-[10px] text-slate-500 font-medium">{pm.desc}</span>
@@ -702,6 +859,78 @@ export const MesasComandas: React.FC = () => {
                         ))}
                       </div>
                     </div>
+
+                    {/* Partial Payment Configuration */}
+                    {closePaymentMethod === 'parcial' && (
+                      <div className="p-3.5 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2.5 text-xs">
+                        <p className="font-extrabold text-indigo-950">
+                          🌓 Pagamento Parcial — Deixar Restante em Aberto
+                        </p>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-indigo-900 mb-1">
+                            Valor Pago Agora (R$) *
+                          </label>
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            max={remainingDue}
+                            value={closePartialPaidInput}
+                            onChange={(e) => setClosePartialPaidInput(e.target.value)}
+                            placeholder={`Ex: ${(remainingDue / 2).toFixed(2)}`}
+                            className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-sm font-black text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                          />
+                          {remainingDue > 0 && (
+                            <div className="flex gap-1.5 mt-1.5">
+                              {[0.25, 0.5, 0.75].map((pct) => (
+                                <button
+                                  key={pct}
+                                  type="button"
+                                  onClick={() => setClosePartialPaidInput((remainingDue * pct).toFixed(2))}
+                                  className="flex-1 py-1 bg-white hover:bg-indigo-100 border border-indigo-200 rounded-md text-[10px] font-bold text-indigo-800 cursor-pointer"
+                                >
+                                  {Math.round(pct * 100)}% (R$ {(remainingDue * pct).toFixed(2).replace('.', ',')})
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-indigo-900 mb-1">
+                            Forma do Pagamento Recebido Agora
+                          </label>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {BASE_PAYMENT_OPTIONS.map((opt) => (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => setClosePartialMethod(opt.id)}
+                                className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                                  closePartialMethod === opt.id
+                                    ? 'bg-indigo-600 text-white border-indigo-700'
+                                    : 'bg-white text-slate-700 border-indigo-200'
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="bg-white rounded-lg border border-indigo-200 p-2.5 space-y-1 text-[11px]">
+                          <div className="flex justify-between text-emerald-700 font-bold">
+                            <span>Pago nesta Etapa:</span>
+                            <span>R$ {parsedPartialNow.toFixed(2).replace('.', ',')}</span>
+                          </div>
+                          <div className="flex justify-between text-amber-800 font-black border-t border-slate-100 pt-1">
+                            <span>Valor Restante em Aberto:</span>
+                            <span>R$ {partialOpenAfter.toFixed(2).replace('.', ',')}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Notice for PG payment method */}
                     {closePaymentMethod === 'pg' && (
@@ -714,14 +943,14 @@ export const MesasComandas: React.FC = () => {
                     )}
 
                     {/* Dynamic Pix QR Code Box */}
-                    {closePaymentMethod === 'pix' && (
+                    {(closePaymentMethod === 'pix' || (closePaymentMethod === 'parcial' && closePartialMethod === 'pix' && parsedPartialNow > 0)) && (
                       <div className="animate-in fade-in zoom-in-95 duration-150">
                         <PixQrCodeDisplay
                           pixKey={settings.pixKey}
                           merchantName={settings.pixName || settings.name}
-                          amount={grandTotal}
+                          amount={closePaymentMethod === 'parcial' ? parsedPartialNow : remainingDue}
                           orderCode={`MESA-${closingTable.id}`}
-                          title={`QR Code Pix - ${closingTable.name}`}
+                          title={closePaymentMethod === 'parcial' ? `QR Code Pix Parcial - ${closingTable.name}` : `QR Code Pix - ${closingTable.name}`}
                         />
                       </div>
                     )}
@@ -731,7 +960,10 @@ export const MesasComandas: React.FC = () => {
                       onClick={handleConfirmCloseBill}
                       className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md flex items-center justify-center gap-2 cursor-pointer transition mt-2"
                     >
-                      <CheckCircle className="w-5 h-5" /> CONFIRMAR PAGAMENTO E FECHAR CONTA (R$ {grandTotal.toFixed(2).replace('.', ',')})
+                      <CheckCircle className="w-5 h-5" />{' '}
+                      {closePaymentMethod === 'parcial'
+                        ? `FECHAR PARCIAL (PAGO R$ ${parsedPartialNow.toFixed(2).replace('.', ',')} • ABERTO R$ ${partialOpenAfter.toFixed(2).replace('.', ',')})`
+                        : `CONFIRMAR PAGAMENTO E FECHAR CONTA (R$ ${remainingDue.toFixed(2).replace('.', ',')})`}
                     </button>
                   </>
                 );
@@ -923,6 +1155,18 @@ export const MesasComandas: React.FC = () => {
                     <span>TOTAL DA CONTA:</span>
                     <span className="text-black">R$ {grandTotal.toFixed(2).replace('.', ',')}</span>
                   </div>
+                  {(comanda.paidAmount || 0) > 0 && (
+                    <>
+                      <div className="flex justify-between text-black text-[11px]">
+                        <span>PAGO (PARCIAL):</span>
+                        <span>- R$ {(comanda.paidAmount || 0).toFixed(2).replace('.', ',')}</span>
+                      </div>
+                      <div className="flex justify-between text-sm text-black font-black border-t border-black pt-1">
+                        <span>SALDO RESTANTE:</span>
+                        <span>R$ {Math.max(0, grandTotal - (comanda.paidAmount || 0)).toFixed(2).replace('.', ',')}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div className="text-center text-[10px] text-black pt-3 border-t border-dashed border-black font-sans font-bold">

@@ -1,8 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { Order, OrderStatus, OrderType, PaymentMethod } from '../types';
+import { Order, OrderStatus, OrderType, PaymentMethod, BasePaymentMethod } from '../types';
 import { playSirenSound } from '../utils/orderAlerts';
 import { generateStatusNotificationText, openWhatsAppLink, cleanPhoneNumber } from '../utils/whatsappHelper';
+import {
+  BASE_PAYMENT_OPTIONS,
+  formatPaymentMethodLabel,
+  getOrderPaidAmount,
+  getOrderRemainingAmount,
+  hasOpenReceivableBalance,
+} from '../utils/paymentHelper';
 import {
   ClipboardList,
   Search,
@@ -56,6 +63,7 @@ export const PedidosList: React.FC = () => {
     orders,
     updateOrderStatus,
     updateOrderPaymentMethod,
+    registerOrderPartialPayment,
     deleteOrder,
     sendOrderToWhatsApp,
     setSelectedReceiptOrder,
@@ -75,6 +83,8 @@ export const PedidosList: React.FC = () => {
   const [selectedOrderDetail, setSelectedOrderDetail] = useState<Order | null>(null);
   const [orderToSettlePG, setOrderToSettlePG] = useState<Order | null>(null);
   const [settleMethod, setSettleMethod] = useState<PaymentMethod>('pix');
+  const [settleMode, setSettleMode] = useState<'full' | 'partial'>('full');
+  const [settlePartialAmountInput, setSettlePartialAmountInput] = useState<string>('');
 
   // Status Labels & Color Schemes
   const statusConfig: Record<
@@ -157,7 +167,9 @@ export const PedidosList: React.FC = () => {
 
     // Payment Filter logic
     let matchesPayment = true;
-    if (paymentFilter !== 'todos') {
+    if (paymentFilter === 'em_aberto') {
+      matchesPayment = hasOpenReceivableBalance(ord);
+    } else if (paymentFilter !== 'todos') {
       matchesPayment = ord.paymentMethod === paymentFilter;
     }
 
@@ -316,7 +328,11 @@ export const PedidosList: React.FC = () => {
   const handleSettleAllGroup = (group: OrderGroup) => {
     group.orders.forEach((ord) => {
       if (ord.paymentStatus !== 'pago') {
-        updateOrderPaymentMethod(ord.id, ord.paymentMethod && ord.paymentMethod !== 'pg' ? ord.paymentMethod : 'pix', 'pago');
+        const method: PaymentMethod =
+          ord.paymentMethod && ord.paymentMethod !== 'pg' && ord.paymentMethod !== 'parcial'
+            ? ord.paymentMethod
+            : 'pix';
+        updateOrderPaymentMethod(ord.id, method);
       }
     });
     addToast({
@@ -504,6 +520,8 @@ export const PedidosList: React.FC = () => {
               className="px-2.5 py-1 rounded-xl text-xs font-bold bg-amber-50 text-amber-900 border border-amber-300 focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
             >
               <option value="todos">💳 Todos os Pagamentos</option>
+              <option value="em_aberto">⏳ Em Aberto (PG + Parcial)</option>
+              <option value="parcial">🌓 Pagamento Parcial</option>
               <option value="pg">📌 Apenas PG (A Receber)</option>
               <option value="pix">⚡ PIX</option>
               <option value="cartao_credito">💳 Cartão Crédito</option>
@@ -873,21 +891,25 @@ export const PedidosList: React.FC = () => {
                   )}
 
                   {/* Total & Payment Summary */}
-                  <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs">
-                    <div>
+                  <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs gap-2">
+                    <div className="min-w-0">
                       <span className="text-[9px] font-bold text-slate-400 uppercase block">Pagamento:</span>
-                      <div className="flex items-center gap-1.5 font-extrabold text-slate-800 mt-0.5">
+                      <div className="flex flex-wrap items-center gap-1.5 font-extrabold text-slate-800 mt-0.5">
                         {ord.paymentStatus === 'pago' ? (
                           <div className="flex items-center gap-1.5">
                             <span className="uppercase font-black text-[10px] bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded-lg border border-emerald-300 flex items-center gap-1 shadow-2xs">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                              {(ord.paymentMethod || 'pix').replace('_', ' ')} • PAGO
+                              {ord.paymentMethod === 'parcial'
+                                ? 'PARCIAL • QUITADO'
+                                : `${(ord.paymentMethod || 'pix').replace('_', ' ')} • PAGO`}
                             </span>
                             <button
                               type="button"
                               onClick={() => {
                                 setOrderToSettlePG(ord);
-                                setSettleMethod(ord.paymentMethod || 'pix');
+                                setSettleMode('full');
+                                setSettlePartialAmountInput('');
+                                setSettleMethod(ord.paymentMethod && ord.paymentMethod !== 'parcial' ? ord.paymentMethod : 'pix');
                               }}
                               className="text-[10px] text-slate-500 hover:text-purple-700 underline font-bold cursor-pointer"
                               title="Alterar forma de pagamento utilizada"
@@ -896,27 +918,56 @@ export const PedidosList: React.FC = () => {
                             </button>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-1.5">
-                            <span className="bg-amber-100 text-amber-950 border border-amber-300 px-2 py-0.5 rounded-lg text-[10px] font-black flex items-center gap-1">
-                              ⏳ {ord.paymentMethod === 'pg' ? '📌 PG (A RECEBER)' : 'PENDENTE'}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setOrderToSettlePG(ord);
-                                setSettleMethod(ord.paymentMethod && ord.paymentMethod !== 'pg' ? ord.paymentMethod : 'pix');
-                              }}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black rounded-lg transition cursor-pointer shadow-2xs flex items-center gap-1 active:scale-95"
-                              title="Marcar como Pago e Selecionar Forma de Pagamento"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Marcar como Pago
-                            </button>
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span
+                                className={`px-2 py-0.5 rounded-lg text-[10px] font-black flex items-center gap-1 border ${
+                                  ord.paymentMethod === 'parcial'
+                                    ? 'bg-indigo-100 text-indigo-950 border-indigo-300'
+                                    : 'bg-amber-100 text-amber-950 border-amber-300'
+                                }`}
+                              >
+                                {ord.paymentMethod === 'pg'
+                                  ? '📌 PG (A RECEBER)'
+                                  : ord.paymentMethod === 'parcial'
+                                  ? '🌓 PAGTO PARCIAL'
+                                  : '⏳ PENDENTE'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOrderToSettlePG(ord);
+                                  setSettleMode('full');
+                                  setSettlePartialAmountInput('');
+                                  setSettleMethod(
+                                    ord.paymentMethod && ord.paymentMethod !== 'pg' && ord.paymentMethod !== 'parcial'
+                                      ? ord.paymentMethod
+                                      : 'pix'
+                                  );
+                                }}
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black rounded-lg transition cursor-pointer shadow-2xs flex items-center gap-1 active:scale-95"
+                                title="Receber pagamento parcial ou quitar saldo restante"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />{' '}
+                                {ord.paymentMethod === 'parcial' ? 'Receber / Quitar' : 'Receber / Pagar'}
+                              </button>
+                            </div>
+                            {(ord.paymentMethod === 'parcial' || (ord.paidAmount || 0) > 0) && (
+                              <div className="text-[10px] font-bold flex items-center gap-2 text-slate-700">
+                                <span className="text-emerald-700">
+                                  Pago: R$ {getOrderPaidAmount(ord).toFixed(2).replace('.', ',')}
+                                </span>
+                                <span className="text-amber-800 font-black">
+                                  Em aberto: R$ {getOrderRemainingAmount(ord).toFixed(2).replace('.', ',')}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
                     </div>
 
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <span className="text-[9px] font-bold text-slate-400 uppercase block">Total:</span>
                       <span className="text-sm font-black text-purple-700">
                         R$ {(ord.total || 0).toFixed(2).replace('.', ',')}
@@ -1013,97 +1064,220 @@ export const PedidosList: React.FC = () => {
       )}
 
       {/* SETTLE / UPDATE PAYMENT MODAL */}
-      {orderToSettlePG && (
-        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-5 border border-slate-200 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-900 flex items-center justify-center font-black">
-                  💵
-                </div>
-                <div>
-                  <h3 className="font-black text-slate-900 text-sm">Atualizar Pagamento ({orderToSettlePG.code})</h3>
-                  <p className="text-xs text-slate-500 font-medium">Cliente: {orderToSettlePG.customer?.name || 'Cliente Balcão/Online'}</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setOrderToSettlePG(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {orderToSettlePG && (() => {
+        const totalOrd = Math.max(0, Number(orderToSettlePG.total) || 0);
+        const alreadyPaid =
+          orderToSettlePG.paymentStatus === 'pago'
+            ? totalOrd
+            : Math.min(totalOrd, Math.max(0, Number(orderToSettlePG.paidAmount) || 0));
+        const remainingDue =
+          orderToSettlePG.paymentStatus === 'pago'
+            ? totalOrd
+            : Math.max(0, +(totalOrd - alreadyPaid).toFixed(2));
+        const parsedPartial = Math.min(
+          remainingDue,
+          Math.max(0, +(Number(String(settlePartialAmountInput).replace(',', '.')) || 0).toFixed(2))
+        );
+        const remainingAfterPartial = Math.max(0, +(remainingDue - parsedPartial).toFixed(2));
 
-            <div className="bg-purple-50 border border-purple-200 rounded-xl p-3.5 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-bold text-purple-800 uppercase block">Valor do Pedido</span>
-                <span className="text-xl font-black text-purple-950">
-                  R$ {(orderToSettlePG.total || 0).toFixed(2).replace('.', ',')}
-                </span>
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 border border-slate-200 shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-900 flex items-center justify-center font-black">
+                    💵
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-900 text-sm">Receber / Atualizar Pagamento ({orderToSettlePG.code})</h3>
+                    <p className="text-xs text-slate-500 font-medium">Cliente: {orderToSettlePG.customer?.name || 'Cliente Balcão'}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOrderToSettlePG(null)}
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <span className={`text-xs font-black px-2.5 py-1 rounded-lg ${
-                orderToSettlePG.paymentStatus === 'pago' ? 'bg-emerald-200 text-emerald-950' : 'bg-amber-200 text-amber-950'
-              }`}>
-                {orderToSettlePG.paymentStatus === 'pago' ? 'PAGO' : 'PENDENTE'}
-              </span>
-            </div>
 
-            <div className="space-y-2">
-              <label className="block text-xs font-extrabold text-slate-800 uppercase tracking-wide">
-                Qual foi a Forma de Pagamento Utilizada? *
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'pix', label: '⚡ Pix', desc: 'Transferência instantânea' },
-                  { id: 'cartao_credito', label: '💳 Cartão Crédito', desc: 'Maquininha balcão / online' },
-                  { id: 'cartao_debito', label: '💳 Cartão Débito', desc: 'Maquininha balcão / online' },
-                  { id: 'dinheiro', label: '💵 Dinheiro', desc: 'Pagamento em espécie' },
-                  { id: 'pg', label: '📌 PG (Pendência)', desc: 'A receber (Fiado)' },
-                ].map((pm) => (
-                  <button
-                    key={pm.id}
-                    type="button"
-                    onClick={() => setSettleMethod(pm.id as PaymentMethod)}
-                    className={`p-3 rounded-xl text-left border transition cursor-pointer flex flex-col ${
-                      settleMethod === pm.id
-                        ? 'bg-emerald-50 border-emerald-600 text-emerald-950 ring-2 ring-emerald-500/20 shadow-2xs'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              <div className="bg-purple-50 border border-purple-200 rounded-xl p-3.5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold text-purple-800 uppercase block">
+                      {orderToSettlePG.paymentStatus !== 'pago' && alreadyPaid > 0 ? 'Saldo Restante em Aberto' : 'Valor do Pedido'}
+                    </span>
+                    <span className="text-xl font-black text-purple-950">
+                      R$ {remainingDue.toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                  <span
+                    className={`text-xs font-black px-2.5 py-1 rounded-lg ${
+                      orderToSettlePG.paymentStatus === 'pago'
+                        ? 'bg-emerald-200 text-emerald-950'
+                        : orderToSettlePG.paymentMethod === 'parcial'
+                        ? 'bg-indigo-200 text-indigo-950'
+                        : 'bg-amber-200 text-amber-950'
                     }`}
                   >
-                    <span className="font-extrabold text-xs">{pm.label}</span>
-                    <span className="text-[10px] text-slate-500 font-medium">{pm.desc}</span>
+                    {orderToSettlePG.paymentStatus === 'pago'
+                      ? 'PAGO'
+                      : orderToSettlePG.paymentMethod === 'parcial'
+                      ? 'PARCIAL'
+                      : 'PENDENTE'}
+                  </span>
+                </div>
+                {orderToSettlePG.paymentStatus !== 'pago' && alreadyPaid > 0 && (
+                  <div className="flex justify-between text-[11px] font-bold text-purple-900 border-t border-purple-200/70 pt-1.5">
+                    <span>Total Original: R$ {totalOrd.toFixed(2).replace('.', ',')}</span>
+                    <span className="text-emerald-700">Já Pago: R$ {alreadyPaid.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
+              </div>
+
+              {orderToSettlePG.partialPayments && orderToSettlePG.partialPayments.length > 0 && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1 text-[11px]">
+                  <span className="font-extrabold text-slate-700 uppercase block text-[10px]">Histórico de Pagamentos:</span>
+                  {orderToSettlePG.partialPayments.map((pp) => (
+                    <div key={pp.id} className="flex justify-between text-slate-700 font-semibold">
+                      <span>✓ {formatPaymentMethodLabel(pp.method)}</span>
+                      <span>R$ {pp.amount.toFixed(2).replace('.', ',')}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {orderToSettlePG.paymentStatus !== 'pago' && (
+                <div className="grid grid-cols-2 gap-1.5 bg-slate-100 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setSettleMode('full')}
+                    className={`py-2 px-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                      settleMode === 'full' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    Quitar Saldo Total
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSettleMode('partial');
+                      if (settleMethod === 'pg' || settleMethod === 'parcial') setSettleMethod('pix');
+                    }}
+                    className={`py-2 px-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                      settleMode === 'partial' ? 'bg-indigo-600 text-white shadow-2xs' : 'text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    🌓 Pagar Parte (Parcial)
+                  </button>
+                </div>
+              )}
+
+              {settleMode === 'partial' && orderToSettlePG.paymentStatus !== 'pago' && (
+                <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2 text-xs">
+                  <label className="block text-[11px] font-bold text-indigo-900">
+                    Quanto o cliente está pagando agora? (Máx R$ {remainingDue.toFixed(2).replace('.', ',')})
+                  </label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    max={remainingDue}
+                    value={settlePartialAmountInput}
+                    onChange={(e) => setSettlePartialAmountInput(e.target.value)}
+                    placeholder={`Ex: ${(remainingDue / 2).toFixed(2)}`}
+                    className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-sm font-black text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                  <div className="flex justify-between text-[11px] font-bold text-indigo-900 pt-1">
+                    <span>Pago agora: R$ {parsedPartial.toFixed(2).replace('.', ',')}</span>
+                    <span className="text-amber-800">Restará em aberto: R$ {remainingAfterPartial.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="block text-xs font-extrabold text-slate-800 uppercase tracking-wide">
+                  Qual foi a Forma de Pagamento Utilizada? *
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    ...BASE_PAYMENT_OPTIONS,
+                    ...(settleMode === 'full'
+                      ? [{ id: 'pg' as PaymentMethod, label: '📌 PG (Pendência)', shortLabel: 'PG', desc: 'A receber (Fiado)' }]
+                      : []),
+                  ].map((pm) => (
+                    <button
+                      key={pm.id}
+                      type="button"
+                      onClick={() => setSettleMethod(pm.id as PaymentMethod)}
+                      className={`p-3 rounded-xl text-left border transition cursor-pointer flex flex-col ${
+                        settleMethod === pm.id
+                          ? 'bg-emerald-50 border-emerald-600 text-emerald-950 ring-2 ring-emerald-500/20 shadow-2xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="font-extrabold text-xs">{pm.label}</span>
+                      <span className="text-[10px] text-slate-500 font-medium">{pm.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setOrderToSettlePG(null)}
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (settleMode === 'partial' && orderToSettlePG.paymentStatus !== 'pago') {
+                      if (parsedPartial <= 0) {
+                        addToast({
+                          title: 'Informe o Valor Recebido',
+                          message: 'Digite um valor maior que R$ 0,00 para registrar o pagamento parcial.',
+                          type: 'warning',
+                        });
+                        return;
+                      }
+                      const method: BasePaymentMethod =
+                        settleMethod === 'pg' || settleMethod === 'parcial' ? 'pix' : (settleMethod as BasePaymentMethod);
+                      registerOrderPartialPayment(orderToSettlePG.id, parsedPartial, method);
+                      setOrderToSettlePG(null);
+                      return;
+                    }
+
+                    if (
+                      orderToSettlePG.paymentStatus !== 'pago' &&
+                      orderToSettlePG.paymentMethod === 'parcial' &&
+                      settleMethod !== 'pg' &&
+                      settleMethod !== 'parcial'
+                    ) {
+                      registerOrderPartialPayment(
+                        orderToSettlePG.id,
+                        remainingDue,
+                        settleMethod as BasePaymentMethod,
+                        'Quitação do saldo restante'
+                      );
+                    } else {
+                      updateOrderPaymentMethod(orderToSettlePG.id, settleMethod);
+                    }
+                    setOrderToSettlePG(null);
+                  }}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer flex items-center gap-1.5 active:scale-95 transition"
+                >
+                  <CheckCircle2 className="w-4 h-4" />{' '}
+                  {settleMode === 'partial' ? 'Registrar Pagamento Parcial' : 'Confirmar Pagamento'}
+                </button>
               </div>
             </div>
-
-            <p className="text-[11px] text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-200 leading-snug">
-              💡 <strong>Ao confirmar:</strong> O status do pagamento será atualizado para <strong>{settleMethod === 'pg' ? 'PENDENTE PG' : 'PAGO'}</strong> e o valor de <strong>R$ {(orderToSettlePG.total || 0).toFixed(2).replace('.', ',')}</strong> será contabilizado adequadamente no faturamento.
-            </p>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setOrderToSettlePG(null)}
-                className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  updateOrderPaymentMethod(orderToSettlePG.id, settleMethod);
-                  setOrderToSettlePG(null);
-                }}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer flex items-center gap-1.5 active:scale-95 transition"
-              >
-                <CheckCircle2 className="w-4 h-4" /> Confirmar Pagamento
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* CONFIRM DELETE ORDER MODAL */}
       {orderToDelete && (

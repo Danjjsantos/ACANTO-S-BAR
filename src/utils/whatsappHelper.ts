@@ -1,4 +1,5 @@
 import { Order, StoreSettings } from '../types';
+import { getOrderPaidAmount, getOrderRemainingAmount, formatPaymentMethodLabel } from './paymentHelper';
 
 /**
  * Replaces placeholders in a WhatsApp template string with actual order and store data
@@ -88,12 +89,15 @@ export function generateOrderSummaryText(order: Order, settings: StoreSettings):
 
   let paymentLabel = (order.paymentMethod || 'pix').toUpperCase().replace('_', ' ');
   if (order.paymentMethod === 'pg') paymentLabel = '📌 PG (A RECEBER)';
+  if (order.paymentMethod === 'parcial') paymentLabel = '🌓 PAGAMENTO PARCIAL';
   if (order.paymentMethod === 'pix') paymentLabel = '⚡ PIX';
   if (order.paymentMethod === 'cartao_credito') paymentLabel = '💳 CARTÃO CRÉDITO';
   if (order.paymentMethod === 'cartao_debito') paymentLabel = '💳 CARTÃO DÉBITO';
   if (order.paymentMethod === 'dinheiro') paymentLabel = '💵 DINHEIRO';
 
-  const payStatusStr = order.paymentStatus === 'pago' ? '✅ PAGO' : '⏳ PENDENTE';
+  const payStatusStr = order.paymentStatus === 'pago' ? '✅ PAGO' : '⏳ EM ABERTO';
+  const paidAmt = getOrderPaidAmount(order);
+  const remAmt = getOrderRemainingAmount(order);
 
   let typeLabel = '🛵 Delivery';
   if (order.type === 'pdv') typeLabel = '🏪 Balcão / PDV';
@@ -116,6 +120,17 @@ export function generateOrderSummaryText(order: Order, settings: StoreSettings):
   msg += `💰 *TOTAL:* *R$ ${totalStr}*\n\n`;
 
   msg += `💳 *Forma de Pagamento:* ${paymentLabel} (${payStatusStr})\n`;
+  if (order.paymentMethod === 'parcial' || remAmt > 0) {
+    msg += `✅ *Valor Pago:* R$ ${paidAmt.toFixed(2).replace('.', ',')}\n`;
+    if (remAmt > 0) {
+      msg += `⏳ *Restante em Aberto:* R$ ${remAmt.toFixed(2).replace('.', ',')}\n`;
+    }
+    if (order.partialPayments && order.partialPayments.length > 0) {
+      msg += order.partialPayments
+        .map((p) => `   └ ${formatPaymentMethodLabel(p.method)}: R$ ${p.amount.toFixed(2).replace('.', ',')}`)
+        .join('\n') + '\n';
+    }
+  }
 
   if (order.notes) {
     msg += `📝 *Observações:* ${order.notes}\n`;

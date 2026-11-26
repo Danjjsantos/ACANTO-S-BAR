@@ -1,8 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { Order, PaymentMethod } from '../types';
+import { Order, PaymentMethod, BasePaymentMethod } from '../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import {
+  BASE_PAYMENT_OPTIONS,
+  formatPaymentMethodLabel,
+  getOrderPaidAmount,
+  getOrderRemainingAmount,
+  hasOpenReceivableBalance,
+} from '../utils/paymentHelper';
 import {
   DollarSign,
   Calendar,
@@ -28,7 +35,7 @@ import {
 } from 'lucide-react';
 
 export const FaturamentoView: React.FC = () => {
-  const { orders, customers, products, setSelectedReceiptOrder, updateOrderPaymentMethod, settings } = useApp();
+  const { orders, customers, products, setSelectedReceiptOrder, updateOrderPaymentMethod, registerOrderPartialPayment, addToast, settings } = useApp();
 
   // Filter States
   const [periodPreset, setPeriodPreset] = useState<
@@ -39,16 +46,18 @@ export const FaturamentoView: React.FC = () => {
   const [endDate, setEndDate] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('todos'); // e.g. "2026-07"
 
-  const [paymentFilter, setPaymentFilter] = useState<string>('todos'); // 'todos' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'dinheiro' | 'pg'
+  const [paymentFilter, setPaymentFilter] = useState<string>('todos'); // 'todos' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'dinheiro' | 'pg' | 'parcial' | 'em_aberto'
   const [customerFilter, setCustomerFilter] = useState<string>('todos'); // customer ID or name or 'todos'
   const [productFilter, setProductFilter] = useState<string>('todos'); // product ID or 'todos'
   const [typeFilter, setTypeFilter] = useState<string>('todos'); // 'todos' | 'delivery' | 'pdv' | 'mesa'
 
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Settle PG modal state
+  // Settle PG / Partial modal state
   const [orderToSettlePG, setOrderToSettlePG] = useState<Order | null>(null);
   const [settleMethod, setSettleMethod] = useState<PaymentMethod>('pix');
+  const [settleMode, setSettleMode] = useState<'full' | 'partial'>('full');
+  const [settlePartialAmountInput, setSettlePartialAmountInput] = useState<string>('');
 
   // Reset all filters helper
   const handleResetFilters = () => {
@@ -166,7 +175,9 @@ export const FaturamentoView: React.FC = () => {
       }
 
       // 2. Payment Method Filter
-      if (paymentFilter !== 'todos') {
+      if (paymentFilter === 'em_aberto') {
+        if (!hasOpenReceivableBalance(ord)) return false;
+      } else if (paymentFilter !== 'todos') {
         if ((ord.paymentMethod || 'pix') !== paymentFilter) return false;
       }
 
@@ -210,15 +221,16 @@ export const FaturamentoView: React.FC = () => {
 
   // Financial Calculations
   const stats = useMemo(() => {
-    const paidOrders = filteredOrders.filter((o) => o.paymentMethod !== 'pg');
-    const pgOrders = filteredOrders.filter((o) => o.paymentMethod === 'pg');
+    const paidOrders = filteredOrders.filter((o) => !hasOpenReceivableBalance(o));
+    const openReceivableOrders = filteredOrders.filter((o) => hasOpenReceivableBalance(o));
 
-    const totalRevenue = paidOrders.reduce((sum, o) => sum + (o.total || 0), 0);
-    const totalPendingPG = pgOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+    const totalRevenue = filteredOrders.reduce((sum, o) => sum + getOrderPaidAmount(o), 0);
+    const totalPendingPG = filteredOrders.reduce((sum, o) => sum + getOrderRemainingAmount(o), 0);
 
     const totalOrdersCount = filteredOrders.length;
     const paidOrdersCount = paidOrders.length;
-    const averageTicket = paidOrdersCount > 0 ? totalRevenue / paidOrdersCount : 0;
+    const openReceivablesCount = openReceivableOrders.length;
+    const averageTicket = totalOrdersCount > 0 ? totalRevenue / totalOrdersCount : 0;
 
     const totalDiscounts = filteredOrders.reduce((sum, o) => sum + (o.discount || 0), 0);
     const totalDeliveryFees = filteredOrders.reduce((sum, o) => sum + (o.deliveryFee || 0), 0);
@@ -230,11 +242,28 @@ export const FaturamentoView: React.FC = () => {
       cartao_debito: { total: 0, count: 0 },
       dinheiro: { total: 0, count: 0 },
       pg: { total: 0, count: 0 },
+      parcial: { total: 0, count: 0 },
     };
 
     filteredOrders.forEach((o) => {
       const pm = (o.paymentMethod || 'pix') as PaymentMethod;
-      if (byPayment[pm]) {
+      if (pm === 'parcial' || (o.partialPayments && o.partialPayments.length > 0)) {
+        (o.partialPayments || []).forEach((pp) => {
+          if (byPayment[pp.method]) {
+            byPayment[pp.method].total += pp.amount || 0;
+            byPayment[pp.method].count += 1;
+          }
+        });
+        const rem = getOrderRemainingAmount(o);
+        if (rem > 0.009) {
+          byPayment.parcial.total += rem;
+          byPayment.parcial.count += 1;
+        }
+      } else if (pm === 'pg') {
+        const rem = getOrderRemainingAmount(o);
+        byPayment.pg.total += rem > 0 ? rem : (o.total || 0);
+        byPayment.pg.count += 1;
+      } else if (byPayment[pm]) {
         byPayment[pm].total += o.total || 0;
         byPayment[pm].count += 1;
       } else {
@@ -269,6 +298,7 @@ export const FaturamentoView: React.FC = () => {
       totalPendingPG,
       totalOrdersCount,
       paidOrdersCount,
+      openReceivablesCount,
       averageTicket,
       totalDiscounts,
       totalDeliveryFees,
@@ -623,6 +653,8 @@ export const FaturamentoView: React.FC = () => {
               className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-purple-500 focus:outline-none cursor-pointer"
             >
               <option value="todos">Todas Formas</option>
+              <option value="em_aberto">⏳ Em Aberto (PG + Parcial)</option>
+              <option value="parcial">🌓 Pagamento Parcial</option>
               <option value="pg">📌 PG (A Receber)</option>
               <option value="pix">⚡ PIX</option>
               <option value="cartao_credito">💳 C. Crédito</option>
@@ -724,10 +756,10 @@ export const FaturamentoView: React.FC = () => {
           </p>
         </div>
 
-        {/* Contas PG A Receber */}
+        {/* Contas A Receber (PG + Parcial) */}
         <div className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl p-5 text-white shadow-md relative overflow-hidden print:bg-white print:text-black print:border print:border-slate-300 print:shadow-none print:p-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-amber-100 uppercase tracking-wider print:text-slate-600">📌 Contas PG (A Receber)</span>
+            <span className="text-xs font-bold text-amber-100 uppercase tracking-wider print:text-slate-600">📌 Em Aberto (PG + Parcial)</span>
             <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center font-extrabold text-white print:bg-slate-100 print:text-slate-900 print:border print:border-slate-300">
               <Clock className="w-4 h-4 text-white" />
             </div>
@@ -738,7 +770,7 @@ export const FaturamentoView: React.FC = () => {
             </span>
           </div>
           <p className="text-[11px] text-amber-100 mt-2 flex items-center gap-1 font-medium print:text-slate-600 print:mt-1">
-            <Clock className="w-3.5 h-3.5 text-amber-200 print:text-amber-700" /> {stats.byPayment.pg.count} contas aguardando quitação
+            <Clock className="w-3.5 h-3.5 text-amber-200 print:text-amber-700" /> {stats.openReceivablesCount} contas aguardando quitação
           </p>
         </div>
 
@@ -790,9 +822,9 @@ export const FaturamentoView: React.FC = () => {
               </strong>
             </div>
             <div className="flex justify-between items-center text-amber-900 font-bold border-t border-slate-100 pt-1">
-              <span>📌 PG (A Receber):</span>
+              <span>📌 Em Aberto (PG / Parcial):</span>
               <strong className="font-black text-amber-900">
-                R$ {stats.byPayment.pg.total.toFixed(2).replace('.', ',')}
+                R$ {(stats.byPayment.pg.total + stats.byPayment.parcial.total).toFixed(2).replace('.', ',')}
               </strong>
             </div>
           </div>
@@ -913,9 +945,22 @@ export const FaturamentoView: React.FC = () => {
 
                       {/* Payment Method */}
                       <td className="p-2.5 sm:p-3 print:p-2 whitespace-nowrap">
-                        {ord.paymentMethod === 'pg' ? (
+                        {ord.paymentMethod === 'pg' && ord.paymentStatus !== 'pago' ? (
                           <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-100 text-amber-950 border border-amber-300">
                             📌 PG (A Receber)
+                          </span>
+                        ) : ord.paymentMethod === 'parcial' && ord.paymentStatus !== 'pago' ? (
+                          <div className="space-y-0.5">
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-indigo-100 text-indigo-950 border border-indigo-300 inline-block">
+                              🌓 PARCIAL (EM ABERTO)
+                            </span>
+                            <div className="text-[10px] text-slate-600 font-bold">
+                              Pago: R$ {getOrderPaidAmount(ord).toFixed(2).replace('.', ',')} | Aberto: R$ {getOrderRemainingAmount(ord).toFixed(2).replace('.', ',')}
+                            </div>
+                          </div>
+                        ) : ord.paymentMethod === 'parcial' ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 print:bg-slate-200 print:text-black">
+                            🌓 PARCIAL (QUITADO)
                           </span>
                         ) : (
                           <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 print:bg-slate-200 print:text-black">
@@ -929,18 +974,20 @@ export const FaturamentoView: React.FC = () => {
                         R$ {(ord.total || 0).toFixed(2).replace('.', ',')}
                       </td>
 
-                      {/* Action: Print Receipt / View / Quitar PG */}
+                      {/* Action: Print Receipt / View / Quitar PG ou Parcial */}
                       <td className="p-2.5 sm:p-3 text-center print:hidden flex items-center justify-center gap-1.5 whitespace-nowrap">
-                        {ord.paymentMethod === 'pg' && (
+                        {hasOpenReceivableBalance(ord) && (
                           <button
                             onClick={() => {
                               setOrderToSettlePG(ord);
+                              setSettleMode('full');
+                              setSettlePartialAmountInput('');
                               setSettleMethod('pix');
                             }}
                             className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[10px] rounded-md transition inline-flex items-center gap-1 cursor-pointer shadow-2xs"
-                            title="Dar Baixa / Quitar Pagamento PG"
+                            title="Receber pagamento parcial ou quitar saldo em aberto"
                           >
-                            <CheckCircle2 className="w-3 h-3" /> Quitar PG
+                            <CheckCircle2 className="w-3 h-3" /> {ord.paymentMethod === 'parcial' ? 'Receber' : 'Quitar PG'}
                           </button>
                         )}
                         <button
@@ -962,92 +1009,175 @@ export const FaturamentoView: React.FC = () => {
 
       </div>
 
-      {/* SETTLE PG PAYMENT MODAL */}
-      {orderToSettlePG && (
-        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-5 border border-slate-200 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-black">
-                  📌
+      {/* SETTLE PG / PARCIAL PAYMENT MODAL */}
+      {orderToSettlePG && (() => {
+        const totalOrd = Math.max(0, Number(orderToSettlePG.total) || 0);
+        const alreadyPaid = getOrderPaidAmount(orderToSettlePG);
+        const remainingDue = getOrderRemainingAmount(orderToSettlePG);
+        const parsedPartial = Math.min(
+          remainingDue,
+          Math.max(0, +(Number(String(settlePartialAmountInput).replace(',', '.')) || 0).toFixed(2))
+        );
+        const remainingAfterPartial = Math.max(0, +(remainingDue - parsedPartial).toFixed(2));
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 border border-slate-200 shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-black">
+                    {orderToSettlePG.paymentMethod === 'parcial' ? '🌓' : '📌'}
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-900 text-sm">Receber Conta em Aberto ({orderToSettlePG.code})</h3>
+                    <p className="text-xs text-slate-500 font-medium">Cliente: {orderToSettlePG.customer?.name || 'Cliente'}</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-black text-slate-900 text-sm">Quitar Pagamento PG ({orderToSettlePG.code})</h3>
-                  <p className="text-xs text-slate-500 font-medium">Baixar conta a receber de {orderToSettlePG.customer?.name || 'Cliente'}</p>
+                <button
+                  onClick={() => setOrderToSettlePG(null)}
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold text-amber-800 uppercase block">Saldo Restante em Aberto</span>
+                    <span className="text-xl font-black text-amber-950">
+                      R$ {remainingDue.toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                  <span className="text-xs font-bold bg-amber-200/80 text-amber-950 px-2.5 py-1 rounded-lg">
+                    {orderToSettlePG.paymentMethod === 'parcial' ? 'Pagamento Parcial' : 'Pendente PG'}
+                  </span>
+                </div>
+                {alreadyPaid > 0 && (
+                  <div className="flex justify-between text-[11px] font-bold text-amber-900 border-t border-amber-200/70 pt-1.5">
+                    <span>Total Original: R$ {totalOrd.toFixed(2).replace('.', ',')}</span>
+                    <span className="text-emerald-700">Já Pago: R$ {alreadyPaid.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
+              </div>
+
+              {orderToSettlePG.partialPayments && orderToSettlePG.partialPayments.length > 0 && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1 text-[11px]">
+                  <span className="font-extrabold text-slate-700 uppercase block text-[10px]">Pagamentos Já Recebidos:</span>
+                  {orderToSettlePG.partialPayments.map((pp) => (
+                    <div key={pp.id} className="flex justify-between text-slate-700 font-semibold">
+                      <span>✓ {formatPaymentMethodLabel(pp.method)}</span>
+                      <span>R$ {pp.amount.toFixed(2).replace('.', ',')}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-1.5 bg-slate-100 p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setSettleMode('full')}
+                  className={`py-2 px-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                    settleMode === 'full' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  Quitar Saldo Integral
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettleMode('partial')}
+                  className={`py-2 px-2 rounded-lg text-xs font-extrabold transition cursor-pointer ${
+                    settleMode === 'partial' ? 'bg-indigo-600 text-white shadow-2xs' : 'text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  🌓 Receber Parte (Parcial)
+                </button>
+              </div>
+
+              {settleMode === 'partial' && (
+                <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2 text-xs">
+                  <label className="block text-[11px] font-bold text-indigo-900">
+                    Valor Recebido Agora (Máx R$ {remainingDue.toFixed(2).replace('.', ',')})
+                  </label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    max={remainingDue}
+                    value={settlePartialAmountInput}
+                    onChange={(e) => setSettlePartialAmountInput(e.target.value)}
+                    placeholder={`Ex: ${(remainingDue / 2).toFixed(2)}`}
+                    className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-sm font-black text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                  <div className="flex justify-between text-[11px] font-bold text-indigo-900 pt-1">
+                    <span>Receber agora: R$ {parsedPartial.toFixed(2).replace('.', ',')}</span>
+                    <span className="text-amber-800">Restará em aberto: R$ {remainingAfterPartial.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="block text-xs font-extrabold text-slate-800 uppercase tracking-wide">
+                  Selecione a Forma de Pagamento Efetuada *
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {BASE_PAYMENT_OPTIONS.map((pm) => (
+                    <button
+                      key={pm.id}
+                      type="button"
+                      onClick={() => setSettleMethod(pm.id as PaymentMethod)}
+                      className={`p-3 rounded-xl text-left border transition cursor-pointer flex flex-col ${
+                        settleMethod === pm.id
+                          ? 'bg-emerald-50 border-emerald-600 text-emerald-950 ring-2 ring-emerald-500/20'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="font-extrabold text-xs">{pm.label}</span>
+                      <span className="text-[10px] text-slate-500 font-medium">{pm.desc}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
-              <button
-                onClick={() => setOrderToSettlePG(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-center justify-between">
-              <div>
-                <span className="text-[10px] font-bold text-amber-800 uppercase block">Valor a Liquidar</span>
-                <span className="text-xl font-black text-amber-950">
-                  R$ {(orderToSettlePG.total || 0).toFixed(2).replace('.', ',')}
-                </span>
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  onClick={() => setOrderToSettlePG(null)}
+                  className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    const method: BasePaymentMethod =
+                      settleMethod === 'pg' || settleMethod === 'parcial' ? 'pix' : (settleMethod as BasePaymentMethod);
+
+                    if (settleMode === 'partial') {
+                      if (parsedPartial <= 0) {
+                        addToast({
+                          title: 'Informe o Valor Recebido',
+                          message: 'Digite um valor maior que R$ 0,00 para registrar o pagamento parcial.',
+                          type: 'warning',
+                        });
+                        return;
+                      }
+                      registerOrderPartialPayment(orderToSettlePG.id, parsedPartial, method);
+                    } else if (orderToSettlePG.paymentMethod === 'parcial') {
+                      registerOrderPartialPayment(orderToSettlePG.id, remainingDue, method, 'Quitação do saldo restante');
+                    } else {
+                      updateOrderPaymentMethod(orderToSettlePG.id, method);
+                    }
+                    setOrderToSettlePG(null);
+                  }}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4" />{' '}
+                  {settleMode === 'partial' ? 'Registrar Pagamento Parcial' : 'Confirmar Pagamento & Somar Faturamento'}
+                </button>
               </div>
-              <span className="text-xs font-bold bg-amber-200/80 text-amber-950 px-2.5 py-1 rounded-lg">
-                Pendente PG
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              <label className="block text-xs font-extrabold text-slate-800 uppercase tracking-wide">
-                Selecione a Forma de Pagamento Efetuada *
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'pix', label: '⚡ Pix', desc: 'Transferência instantânea' },
-                  { id: 'cartao_credito', label: '💳 Cartão Crédito', desc: 'Maquininha balcão' },
-                  { id: 'cartao_debito', label: '💳 Cartão Débito', desc: 'Maquininha balcão' },
-                  { id: 'dinheiro', label: '💵 Dinheiro', desc: 'Pagamento em espécie' },
-                ].map((pm) => (
-                  <button
-                    key={pm.id}
-                    type="button"
-                    onClick={() => setSettleMethod(pm.id as PaymentMethod)}
-                    className={`p-3 rounded-xl text-left border transition cursor-pointer flex flex-col ${
-                      settleMethod === pm.id
-                        ? 'bg-emerald-50 border-emerald-600 text-emerald-950 ring-2 ring-emerald-500/20'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span className="font-extrabold text-xs">{pm.label}</span>
-                    <span className="text-[10px] text-slate-500 font-medium">{pm.desc}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <p className="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-              💡 <strong>Ao confirmar:</strong> O status mudará para quitado e o valor de <strong>R$ {(orderToSettlePG.total || 0).toFixed(2).replace('.', ',')}</strong> passará a somar ao faturamento positivo do estabelecimento.
-            </p>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                onClick={() => setOrderToSettlePG(null)}
-                className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => {
-                  updateOrderPaymentMethod(orderToSettlePG.id, settleMethod);
-                  setOrderToSettlePG(null);
-                }}
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="w-4 h-4" /> Confirmar Pagamento & Somar Faturamento
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* EXCLUSIVE PRINT FOOTER (Only visible during print) */}
       <div className="hidden print:block mt-8 pt-4 border-t border-slate-300 text-center text-[10px] text-slate-500">

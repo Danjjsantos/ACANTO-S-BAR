@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { Product, CartItem, PaymentMethod, CartItemExtra, Order } from '../types';
+import { Product, CartItem, PaymentMethod, BasePaymentMethod, CartItemExtra, Order, PartialPaymentEntry } from '../types';
 import { PixQrCodeDisplay } from './PixQrCodeDisplay';
+import { BASE_PAYMENT_OPTIONS, getOrderPaidAmount, getOrderRemainingAmount } from '../utils/paymentHelper';
 import {
   Search,
   Plus,
@@ -94,6 +95,8 @@ export const PDVBalcao: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [discount, setDiscount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix');
+  const [partialPaidInput, setPartialPaidInput] = useState<string>('');
+  const [partialMethod, setPartialMethod] = useState<BasePaymentMethod>('pix');
   const [customerName, setCustomerName] = useState<string>('');
   const [customerPhone, setCustomerPhone] = useState<string>('');
   const [orderNotes, setOrderNotes] = useState<string>('');
@@ -134,6 +137,10 @@ export const PDVBalcao: React.FC = () => {
   const totalCartItemsCount = pdvCart.reduce((sum, item) => sum + item.quantity, 0);
   const subtotal = pdvCart.reduce((sum, item) => sum + item.unitTotal * item.quantity, 0);
   const total = Math.max(0, subtotal - discount);
+
+  const parsedPartialPaid = Math.max(0, +(Number(String(partialPaidInput).replace(',', '.')) || 0).toFixed(2));
+  const clampedPartialPaid = Math.min(total, parsedPartialPaid);
+  const partialRemaining = Math.max(0, +(total - clampedPartialPaid).toFixed(2));
 
   // Handle clicking a product card
   const handleProductClick = (product: Product) => {
@@ -219,6 +226,19 @@ export const PDVBalcao: React.FC = () => {
     let custName = customerName.trim() || 'Cliente Balcão';
     let custPhone = customerPhone.replace(/\D/g, '');
 
+    const draftPartialEntries: PartialPaymentEntry[] | undefined =
+      paymentMethod === 'parcial' && clampedPartialPaid > 0
+        ? [
+            {
+              id: `draft-pp-${Date.now()}`,
+              amount: clampedPartialPaid,
+              method: partialMethod,
+              paidAt: new Date().toISOString(),
+              note: 'Entrada parcial',
+            },
+          ]
+        : undefined;
+
     const draftOrder: Order = {
       id: `draft-${Date.now()}`,
       code: `PRÉVIA`,
@@ -232,7 +252,10 @@ export const PDVBalcao: React.FC = () => {
       deliveryFee: 0,
       total,
       paymentMethod,
-      paymentStatus: paymentMethod === 'pg' ? 'pendente' : 'pago',
+      paymentStatus: paymentMethod === 'pg' || (paymentMethod === 'parcial' && partialRemaining > 0.009) ? 'pendente' : 'pago',
+      paidAmount: paymentMethod === 'parcial' ? clampedPartialPaid : undefined,
+      remainingAmount: paymentMethod === 'parcial' ? partialRemaining : undefined,
+      partialPayments: draftPartialEntries,
       notes: orderNotes,
     };
 
@@ -254,6 +277,25 @@ export const PDVBalcao: React.FC = () => {
   const handleFinalizeSale = () => {
     if (pdvCart.length === 0) return;
 
+    if (paymentMethod === 'parcial') {
+      if (clampedPartialPaid <= 0) {
+        addToast({
+          title: 'Informe o Valor Pago Agora',
+          message: 'Para pagamento parcial, digite quanto o cliente está pagando neste momento (ou use PG para deixar 100% em aberto).',
+          type: 'warning',
+        });
+        return;
+      }
+      if (clampedPartialPaid >= total) {
+        addToast({
+          title: 'Valor Igual ao Total',
+          message: 'O valor digitado cobre 100% da conta. Selecione a forma de pagamento integral ou informe um valor menor que o total.',
+          type: 'warning',
+        });
+        return;
+      }
+    }
+
     let custName = customerName.trim() || 'Cliente Balcão';
     let custPhone = customerPhone.replace(/\D/g, '');
 
@@ -263,6 +305,19 @@ export const PDVBalcao: React.FC = () => {
         phone: custPhone,
       });
     }
+
+    const partialEntries: PartialPaymentEntry[] | undefined =
+      paymentMethod === 'parcial'
+        ? [
+            {
+              id: `pp-${Date.now()}`,
+              amount: clampedPartialPaid,
+              method: partialMethod,
+              paidAt: new Date().toISOString(),
+              note: 'Pagamento parcial inicial (PDV)',
+            },
+          ]
+        : undefined;
 
     const newOrder = createOrder({
       type: 'pdv',
@@ -274,13 +329,17 @@ export const PDVBalcao: React.FC = () => {
       deliveryFee: 0,
       total,
       paymentMethod,
-      paymentStatus: paymentMethod === 'pg' ? 'pendente' : 'pago',
+      paymentStatus: paymentMethod === 'pg' || paymentMethod === 'parcial' ? 'pendente' : 'pago',
+      paidAmount: paymentMethod === 'parcial' ? clampedPartialPaid : undefined,
+      remainingAmount: paymentMethod === 'parcial' ? partialRemaining : undefined,
+      partialPayments: partialEntries,
       notes: orderNotes,
     });
 
     // Reset PDV state
     clearPdvCart();
     setDiscount(0);
+    setPartialPaidInput('');
     setCustomerName('');
     setCustomerPhone('');
     setOrderNotes('');
@@ -420,13 +479,24 @@ export const PDVBalcao: React.FC = () => {
                         </span>
                         <span
                           className={`text-[10px] font-black px-2 py-0.5 rounded-full inline-block ${
-                            ord.paymentMethod === 'pg'
+                            ord.paymentStatus !== 'pago' && (ord.paymentMethod === 'pg' || ord.paymentMethod === 'parcial')
                               ? 'bg-amber-100 text-amber-900 border border-amber-300'
                               : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
                           }`}
                         >
-                          {ord.paymentMethod === 'pg' ? '📌 PG (A RECEBER)' : `💳 ${ord.paymentMethod?.toUpperCase()}`}
+                          {ord.paymentMethod === 'pg' && ord.paymentStatus !== 'pago'
+                            ? '📌 PG (A RECEBER)'
+                            : ord.paymentMethod === 'parcial' && ord.paymentStatus !== 'pago'
+                            ? `🌓 PARCIAL • ABT R$ ${getOrderRemainingAmount(ord).toFixed(2).replace('.', ',')}`
+                            : ord.paymentMethod === 'parcial'
+                            ? '🌓 PARCIAL • QUITADO'
+                            : `💳 ${ord.paymentMethod?.toUpperCase()}`}
                         </span>
+                        {ord.paymentMethod === 'parcial' && ord.paymentStatus !== 'pago' && (
+                          <span className="block text-[10px] font-bold text-slate-600 mt-0.5">
+                            Pago: R$ {getOrderPaidAmount(ord).toFixed(2).replace('.', ',')}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -871,24 +941,108 @@ export const PDVBalcao: React.FC = () => {
                 { id: 'cartao_credito', label: 'Crédito', icon: <CreditCard className="w-3.5 h-3.5" /> },
                 { id: 'cartao_debito', label: 'Débito', icon: <CreditCard className="w-3.5 h-3.5" /> },
                 { id: 'dinheiro', label: 'Dinheiro', icon: <DollarSign className="w-3.5 h-3.5" /> },
+                { id: 'parcial', label: 'Pagamento Parcial', icon: <Sparkles className="w-3.5 h-3.5" /> },
                 { id: 'pg', label: 'PG (A Receber)', icon: <Clock className="w-3.5 h-3.5" /> },
               ].map((m) => (
                 <button
                   key={m.id}
+                  type="button"
                   onClick={() => setPaymentMethod(m.id as PaymentMethod)}
-                  className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-bold transition border ${
+                  className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-xs font-bold transition border cursor-pointer ${
                     paymentMethod === m.id
                       ? m.id === 'pg'
                         ? 'bg-amber-600 text-white border-amber-700 shadow-2xs'
+                        : m.id === 'parcial'
+                        ? 'bg-indigo-600 text-white border-indigo-700 shadow-2xs'
                         : 'bg-purple-600 text-white border-purple-700 shadow-2xs'
                       : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                  } ${m.id === 'pg' ? 'col-span-2' : ''}`}
+                  }`}
                 >
                   {m.icon}
                   {m.label}
                 </button>
               ))}
             </div>
+
+            {paymentMethod === 'parcial' && (
+              <div className="mt-2.5 p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-indigo-950">🌓 Pagamento Parcial da Conta</span>
+                  <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full">
+                    Restante em aberto
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-indigo-900 mb-1">
+                    Valor Pago Agora (R$) *
+                  </label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    max={total}
+                    value={partialPaidInput}
+                    onChange={(e) => setPartialPaidInput(e.target.value)}
+                    placeholder={`Ex: ${(total / 2).toFixed(2)}`}
+                    className="w-full px-3 py-2 bg-white border border-indigo-300 rounded-lg text-sm font-black text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                  {total > 0 && (
+                    <div className="flex gap-1.5 mt-1.5">
+                      {[0.25, 0.5, 0.75].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => setPartialPaidInput((total * pct).toFixed(2))}
+                          className="flex-1 py-1 bg-white hover:bg-indigo-100 border border-indigo-200 rounded-md text-[10px] font-bold text-indigo-800 cursor-pointer transition"
+                        >
+                          {Math.round(pct * 100)}% (R$ {(total * pct).toFixed(2).replace('.', ',')})
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-indigo-900 mb-1">
+                    Meio de Pagamento desta Entrada
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {BASE_PAYMENT_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setPartialMethod(opt.id)}
+                        className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                          partialMethod === opt.id
+                            ? 'bg-indigo-600 text-white border-indigo-700'
+                            : 'bg-white text-slate-700 border-indigo-200 hover:bg-indigo-100/60'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-lg border border-indigo-200 p-2.5 space-y-1 text-[11px]">
+                  <div className="flex justify-between text-emerald-700 font-bold">
+                    <span>Pago Agora:</span>
+                    <span>R$ {clampedPartialPaid.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                  <div className="flex justify-between text-amber-800 font-black border-t border-slate-100 pt-1">
+                    <span>Saldo Restante em Aberto:</span>
+                    <span>R$ {partialRemaining.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                </div>
+
+                {!customerName.trim() && (
+                  <p className="text-[10px] text-indigo-800 font-semibold leading-snug">
+                    💡 Dica: informe o nome ou WhatsApp do cliente acima para identificar o saldo em aberto depois.
+                  </p>
+                )}
+              </div>
+            )}
 
             {paymentMethod === 'pg' && (
               <div className="mt-2 p-2.5 bg-amber-50 border border-amber-300 rounded-xl flex items-start gap-2 text-amber-900 text-xs">
@@ -902,14 +1056,16 @@ export const PDVBalcao: React.FC = () => {
               </div>
             )}
 
-            {paymentMethod === 'pix' && pdvCart.length > 0 && (
+            {(paymentMethod === 'pix' || (paymentMethod === 'parcial' && partialMethod === 'pix' && clampedPartialPaid > 0)) && pdvCart.length > 0 && (
               <button
                 type="button"
                 onClick={() => setShowPixModal(true)}
                 className="w-full mt-2 py-2 px-3 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
               >
                 <QrCode className="w-4 h-4 text-emerald-600" />
-                <span>Exibir QR Code Pix (R$ {total.toFixed(2).replace('.', ',')})</span>
+                <span>
+                  Exibir QR Code Pix (R$ {(paymentMethod === 'parcial' ? clampedPartialPaid : total).toFixed(2).replace('.', ',')})
+                </span>
               </button>
             )}
           </div>
@@ -1224,9 +1380,9 @@ export const PDVBalcao: React.FC = () => {
             <PixQrCodeDisplay
               pixKey={settings.pixKey}
               merchantName={settings.pixName || settings.name}
-              amount={total}
+              amount={paymentMethod === 'parcial' && clampedPartialPaid > 0 ? clampedPartialPaid : total}
               orderCode={`PDV-${Date.now().toString().slice(-4)}`}
-              title="QR Code Pix do Caixa"
+              title={paymentMethod === 'parcial' ? 'QR Code Pix — Pagamento Parcial' : 'QR Code Pix do Caixa'}
             />
             <button
               onClick={() => setShowPixModal(false)}

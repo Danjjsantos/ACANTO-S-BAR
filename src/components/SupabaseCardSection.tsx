@@ -250,6 +250,8 @@ CREATE TABLE IF NOT EXISTS public.comandas (
     status TEXT NOT NULL DEFAULT 'aberta',
     items JSONB DEFAULT '[]'::jsonb,
     total NUMERIC(10,2) NOT NULL DEFAULT 0.00,
+    paid_amount NUMERIC(10,2) DEFAULT 0.00,
+    partial_payments JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

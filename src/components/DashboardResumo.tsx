@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { getOrderPaidAmount, getOrderRemainingAmount, hasOpenReceivableBalance } from '../utils/paymentHelper';
 import {
   CheckCircle2,
   ChevronRight,
@@ -23,11 +24,10 @@ export const DashboardResumo: React.FC = () => {
 
   // Calculate Metrics
   const todayOrders = orders.filter((o) => o.status !== 'cancelado');
-  const paidOrders = todayOrders.filter((o) => o.paymentMethod !== 'pg');
-  const pgOrders = todayOrders.filter((o) => o.paymentMethod === 'pg');
+  const paidOrders = todayOrders.filter((o) => !hasOpenReceivableBalance(o));
 
-  const totalRevenueToday = paidOrders.reduce((sum, o) => sum + o.total, 0);
-  const totalPendingPGToday = pgOrders.reduce((sum, o) => sum + o.total, 0);
+  const totalRevenueToday = todayOrders.reduce((sum, o) => sum + getOrderPaidAmount(o), 0);
+  const totalPendingPGToday = todayOrders.reduce((sum, o) => sum + getOrderRemainingAmount(o), 0);
   const estimatedProfit = totalRevenueToday * 0.42; // ~42% margin
   const activeOrders = todayOrders.filter((o) => o.status === 'confirmado' || o.status === 'pronto_para_retirada');
   const onlineDrivers = drivers.filter((d) => d.status === 'disponivel' || d.status === 'em_rota');

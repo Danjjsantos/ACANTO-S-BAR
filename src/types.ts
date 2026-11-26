@@ -16,7 +16,17 @@ export type OrderStatus = 'confirmado' | 'pronto_para_retirada' | 'entregue' | '
 
 export type OrderType = 'pdv' | 'delivery' | 'retirada' | 'mesa';
 
-export type PaymentMethod = 'pix' | 'cartao_credito' | 'cartao_debito' | 'dinheiro' | 'pg';
+export type BasePaymentMethod = 'pix' | 'cartao_credito' | 'cartao_debito' | 'dinheiro';
+
+export type PaymentMethod = BasePaymentMethod | 'pg' | 'parcial';
+
+export interface PartialPaymentEntry {
+  id: string;
+  amount: number;
+  method: BasePaymentMethod;
+  paidAt: string;
+  note?: string;
+}
 
 export interface ExtraOption {
   id: string;
@@ -111,6 +121,9 @@ export interface Order {
   total: number;
   paymentMethod: PaymentMethod;
   paymentStatus: 'pendente' | 'pago';
+  paidAmount?: number;
+  remainingAmount?: number;
+  partialPayments?: PartialPaymentEntry[];
   notes?: string;
   waiterName?: string;
   deliveryDriverName?: string;
@@ -137,6 +150,8 @@ export interface Comanda {
   items: CartItem[];
   createdAt: string;
   total: number;
+  paidAmount?: number;
+  partialPayments?: PartialPaymentEntry[];
 }
 
 export interface Waiter {

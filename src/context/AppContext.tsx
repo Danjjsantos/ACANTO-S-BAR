@@ -71,6 +71,8 @@ import {
   OrderStatus,
   OrderType,
   PaymentMethod,
+  BasePaymentMethod,
+  PartialPaymentEntry,
   ToastNotification,
 } from '../types';
 
@@ -182,6 +184,7 @@ interface AppContextType {
   createOrder: (orderData: Omit<Order, 'id' | 'code' | 'createdAt'>) => Order;
   updateOrderStatus: (orderId: string, status: OrderStatus) => void;
   updateOrderPaymentMethod: (orderId: string, paymentMethod: PaymentMethod) => void;
+  registerOrderPartialPayment: (orderId: string, amount: number, method: BasePaymentMethod, note?: string) => void;
   deleteOrder: (orderId: string) => void;
 
   // Tables
@@ -197,7 +200,13 @@ interface AppContextType {
   comandas: Comanda[];
   createComanda: (customerName: string, customerPhone?: string, tableNumber?: number) => Comanda;
   addItemToComanda: (comandaId: string, item: CartItem) => void;
-  closeComanda: (comandaId: string, paymentMethod: PaymentMethod, serviceFee?: number) => void;
+  addComandaPartialPayment: (comandaId: string, amount: number, method: BasePaymentMethod, note?: string) => void;
+  closeComanda: (
+    comandaId: string,
+    paymentMethod: PaymentMethod,
+    serviceFee?: number,
+    partialInfo?: { amountPaidNow: number; method: BasePaymentMethod }
+  ) => void;
 
   // Customers
   customers: Customer[];
@@ -1447,20 +1456,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let orderCode = '';
     let orderTotal = 0;
     let isPgSettled = false;
-    const newPaymentStatus = paymentMethod === 'pg' ? 'pendente' : 'pago';
+    const isPendingMethod = paymentMethod === 'pg' || paymentMethod === 'parcial';
+    const newPaymentStatus: 'pendente' | 'pago' = isPendingMethod ? 'pendente' : 'pago';
 
     setOrders((prev) =>
       prev.map((ord) => {
         if (ord.id === orderId) {
           orderCode = ord.code;
           orderTotal = ord.total;
-          if (ord.paymentMethod === 'pg' && paymentMethod !== 'pg') {
+          if ((ord.paymentMethod === 'pg' || ord.paymentMethod === 'parcial') && !isPendingMethod) {
             isPgSettled = true;
           }
-          const updated = {
+
+          let nextPartials = ord.partialPayments ? [...ord.partialPayments] : undefined;
+          const prevPaid = ord.paidAmount || 0;
+          const remainingBefore = Math.max(0, +(ord.total - prevPaid).toFixed(2));
+          if (!isPendingMethod && nextPartials && remainingBefore > 0.009) {
+            nextPartials.push({
+              id: `pp-${Date.now()}`,
+              amount: remainingBefore,
+              method: paymentMethod as BasePaymentMethod,
+              paidAt: new Date().toISOString(),
+              note: 'Quitação do saldo restante',
+            });
+          }
+
+          const updated: Order = {
             ...ord,
-            paymentMethod,
+            paymentMethod: !isPendingMethod && nextPartials && nextPartials.length > 0 ? 'parcial' : paymentMethod,
             paymentStatus: newPaymentStatus,
+            paidAmount: isPendingMethod ? prevPaid : ord.total,
+            remainingAmount: isPendingMethod ? remainingBefore : 0,
+            partialPayments: nextPartials,
           };
           upsertOrderToSupabase(updated).catch(() => {});
           return updated;
@@ -1471,17 +1498,74 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (isPgSettled) {
       addToast({
-        title: `Conta PG Quitada! (${orderCode})`,
+        title: `Conta Quitada! (${orderCode})`,
         message: `O pagamento de R$ ${orderTotal.toFixed(2).replace('.', ',')} foi efetuado via ${paymentMethod.replace('_', ' ').toUpperCase()} e somado ao faturamento real.`,
         type: 'success',
       });
     } else {
       addToast({
         title: `Pagamento Confirmado! (${orderCode})`,
-        message: `Pedido marcado como PAGO via ${paymentMethod.replace('_', ' ').toUpperCase()}.`,
+        message: `Pedido atualizado via ${paymentMethod.replace('_', ' ').toUpperCase()}.`,
         type: 'success',
       });
     }
+  };
+
+  const registerOrderPartialPayment = (
+    orderId: string,
+    amount: number,
+    method: BasePaymentMethod,
+    note?: string
+  ) => {
+    const cleanAmount = Math.max(0, +Number(amount || 0).toFixed(2));
+    if (cleanAmount <= 0) return;
+
+    let orderCode = '';
+    let settledCompletely = false;
+    let remainingAfter = 0;
+
+    setOrders((prev) =>
+      prev.map((ord) => {
+        if (ord.id !== orderId) return ord;
+        orderCode = ord.code;
+        const currentPaid = Math.max(0, Number(ord.paidAmount) || 0);
+        const currentRemaining = Math.max(0, +(ord.total - currentPaid).toFixed(2));
+        const appliedAmount = Math.min(cleanAmount, currentRemaining > 0 ? currentRemaining : ord.total);
+
+        const newEntry: PartialPaymentEntry = {
+          id: `pp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          amount: appliedAmount,
+          method,
+          paidAt: new Date().toISOString(),
+          note: note?.trim() || undefined,
+        };
+
+        const nextPartials = [...(ord.partialPayments || []), newEntry];
+        const nextPaid = Math.min(ord.total, +(currentPaid + appliedAmount).toFixed(2));
+        const nextRemaining = Math.max(0, +(ord.total - nextPaid).toFixed(2));
+        settledCompletely = nextRemaining <= 0.009;
+        remainingAfter = settledCompletely ? 0 : nextRemaining;
+
+        const updated: Order = {
+          ...ord,
+          paymentMethod: 'parcial',
+          paymentStatus: settledCompletely ? 'pago' : 'pendente',
+          paidAmount: settledCompletely ? ord.total : nextPaid,
+          remainingAmount: remainingAfter,
+          partialPayments: nextPartials,
+        };
+        upsertOrderToSupabase(updated).catch(() => {});
+        return updated;
+      })
+    );
+
+    addToast({
+      title: settledCompletely ? `Conta Totalmente Quitada! (${orderCode})` : `Pagamento Parcial Registrado (${orderCode})`,
+      message: settledCompletely
+        ? `Recebido R$ ${cleanAmount.toFixed(2).replace('.', ',')} via ${method.replace('_', ' ').toUpperCase()}. Conta 100% quitada!`
+        : `Recebido R$ ${cleanAmount.toFixed(2).replace('.', ',')} via ${method.replace('_', ' ').toUpperCase()}. Restam R$ ${remainingAfter.toFixed(2).replace('.', ',')} em aberto.`,
+      type: 'success',
+    });
   };
 
   const deleteOrder = (orderId: string) => {
@@ -1696,11 +1780,109 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
-  const closeComanda = (comandaId: string, paymentMethod: PaymentMethod, serviceFee: number = 0) => {
+  const addComandaPartialPayment = (
+    comandaId: string,
+    amount: number,
+    method: BasePaymentMethod,
+    note?: string
+  ) => {
+    const cleanAmount = Math.max(0, +Number(amount || 0).toFixed(2));
+    if (cleanAmount <= 0) return;
+
+    let remainingOnTable = 0;
+    setComandas((prev) =>
+      prev.map((c) => {
+        if (c.id !== comandaId) return c;
+        const currentPaid = Math.max(0, Number(c.paidAmount) || 0);
+        const applied = Math.min(cleanAmount, Math.max(0, +(c.total - currentPaid).toFixed(2)));
+        const entry: PartialPaymentEntry = {
+          id: `cpp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          amount: applied,
+          method,
+          paidAt: new Date().toISOString(),
+          note: note?.trim() || 'Abatimento na mesa',
+        };
+        const nextPaid = Math.min(c.total, +(currentPaid + applied).toFixed(2));
+        remainingOnTable = Math.max(0, +(c.total - nextPaid).toFixed(2));
+        const updated: Comanda = {
+          ...c,
+          paidAmount: nextPaid,
+          partialPayments: [...(c.partialPayments || []), entry],
+        };
+        upsertComandaToSupabase(updated).catch(() => {});
+        return updated;
+      })
+    );
+
+    addToast({
+      title: 'Pagamento Parcial Lançado na Mesa',
+      message: `Recebido R$ ${cleanAmount.toFixed(2).replace('.', ',')} via ${method.replace('_', ' ').toUpperCase()}. Saldo em aberto na mesa: R$ ${remainingOnTable.toFixed(2).replace('.', ',')}.`,
+      type: 'success',
+    });
+  };
+
+  const closeComanda = (
+    comandaId: string,
+    paymentMethod: PaymentMethod,
+    serviceFee: number = 0,
+    partialInfo?: { amountPaidNow: number; method: BasePaymentMethod }
+  ) => {
     const comanda = comandas.find((c) => c.id === comandaId);
     if (!comanda) return;
 
-    const grandTotal = (comanda.total || 0) + serviceFee;
+    const grandTotal = +((comanda.total || 0) + serviceFee).toFixed(2);
+    const existingPaid = Math.max(0, Number(comanda.paidAmount) || 0);
+    const existingPartials = comanda.partialPayments ? [...comanda.partialPayments] : [];
+
+    let finalMethod: PaymentMethod = paymentMethod || 'dinheiro';
+    let finalStatus: 'pendente' | 'pago' = 'pago';
+    let finalPaid = grandTotal;
+    let finalRemaining = 0;
+    let finalPartials: PartialPaymentEntry[] | undefined = existingPartials.length > 0 ? existingPartials : undefined;
+
+    if (paymentMethod === 'parcial') {
+      const paidNow = Math.max(0, +(partialInfo?.amountPaidNow || 0).toFixed(2));
+      const nowMethod: BasePaymentMethod = partialInfo?.method || 'pix';
+      if (paidNow > 0) {
+        const entry: PartialPaymentEntry = {
+          id: `pp-${Date.now()}`,
+          amount: Math.min(paidNow, Math.max(0, +(grandTotal - existingPaid).toFixed(2))),
+          method: nowMethod,
+          paidAt: new Date().toISOString(),
+          note: 'Pagamento parcial no fechamento',
+        };
+        finalPartials = [...existingPartials, entry];
+        finalPaid = Math.min(grandTotal, +(existingPaid + entry.amount).toFixed(2));
+      } else {
+        finalPaid = Math.min(grandTotal, existingPaid);
+      }
+      finalRemaining = Math.max(0, +(grandTotal - finalPaid).toFixed(2));
+      finalStatus = finalRemaining <= 0.009 ? 'pago' : 'pendente';
+      finalMethod = finalRemaining <= 0.009 && finalPartials?.length === 1 ? finalPartials[0].method : 'parcial';
+    } else if (paymentMethod === 'pg') {
+      finalPaid = Math.min(grandTotal, existingPaid);
+      finalRemaining = Math.max(0, +(grandTotal - finalPaid).toFixed(2));
+      finalStatus = finalRemaining <= 0.009 ? 'pago' : 'pendente';
+      finalMethod = 'pg';
+    } else if (existingPaid > 0) {
+      const remPaidNow = Math.max(0, +(grandTotal - existingPaid).toFixed(2));
+      if (remPaidNow > 0.009) {
+        finalPartials = [
+          ...existingPartials,
+          {
+            id: `pp-${Date.now()}`,
+            amount: remPaidNow,
+            method: paymentMethod as BasePaymentMethod,
+            paidAt: new Date().toISOString(),
+            note: 'Quitação no fechamento da mesa',
+          },
+        ];
+      }
+      finalPaid = grandTotal;
+      finalRemaining = 0;
+      finalStatus = 'pago';
+      finalMethod = finalPartials && finalPartials.length > 1 ? 'parcial' : paymentMethod;
+    }
 
     // Create a final order for this comanda
     const order = createOrder({
@@ -1714,8 +1896,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       discount: 0,
       deliveryFee: 0,
       total: grandTotal,
-      paymentMethod: paymentMethod || 'dinheiro',
-      paymentStatus: paymentMethod === 'pg' ? 'pendente' : 'pago',
+      paymentMethod: finalMethod,
+      paymentStatus: finalStatus,
+      paidAmount: finalMethod === 'parcial' || finalMethod === 'pg' || finalPartials ? finalPaid : undefined,
+      remainingAmount: finalMethod === 'parcial' || finalMethod === 'pg' || finalPartials ? finalRemaining : undefined,
+      partialPayments: finalPartials,
     });
 
     // Mark comanda as closed and close any other open comandas for this table
@@ -1922,6 +2107,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createOrder,
         updateOrderStatus,
         updateOrderPaymentMethod,
+        registerOrderPartialPayment,
         deleteOrder,
         tables,
         addTable,
@@ -1933,6 +2119,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         comandas,
         createComanda,
         addItemToComanda,
+        addComandaPartialPayment,
         closeComanda,
         customers,
         addCustomer,

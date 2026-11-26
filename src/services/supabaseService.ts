@@ -264,26 +264,55 @@ export async function syncOrdersFromSupabase(): Promise<Order[] | null> {
     }
     if (!data) return [];
 
-    return data.map((item: any) => ({
-      id: String(item.id),
-      code: item.code || `#${String(item.id).slice(-4)}`,
-      type: item.type || 'pdv',
-      status: item.status || 'confirmado',
-      createdAt: item.created_at || new Date().toISOString(),
-      customer: safeParse(item.customer, undefined),
-      tableNumber: item.table_number ? Number(item.table_number) : undefined,
-      comandaNumber: item.comanda_number || undefined,
-      items: safeParse(item.items, []),
-      subtotal: Number(item.subtotal) || 0,
-      discount: Number(item.discount) || 0,
-      deliveryFee: Number(item.delivery_fee) || 0,
-      total: Number(item.total) || 0,
-      paymentMethod: item.payment_method || 'dinheiro',
-      paymentStatus: item.payment_status || 'pago',
-      notes: item.notes || undefined,
-      waiterName: item.waiter_name || undefined,
-      deliveryDriverName: item.delivery_driver_name || undefined,
-    }));
+    return data.map((item: any) => {
+      const rawCustomer = safeParse<any>(item.customer, undefined);
+      let cleanCustomer: Order['customer'] = undefined;
+      let metaPaid: number | undefined = item.paid_amount !== undefined && item.paid_amount !== null ? Number(item.paid_amount) : undefined;
+      let metaRemaining: number | undefined = item.remaining_amount !== undefined && item.remaining_amount !== null ? Number(item.remaining_amount) : undefined;
+      let metaPartials = safeParse<Order['partialPayments']>(item.partial_payments, undefined);
+
+      if (rawCustomer && typeof rawCustomer === 'object') {
+        const { _paymentMeta, ...restCustomer } = rawCustomer;
+        if (_paymentMeta && typeof _paymentMeta === 'object') {
+          if (metaPaid === undefined && _paymentMeta.paidAmount !== undefined) {
+            metaPaid = Number(_paymentMeta.paidAmount);
+          }
+          if (metaRemaining === undefined && _paymentMeta.remainingAmount !== undefined) {
+            metaRemaining = Number(_paymentMeta.remainingAmount);
+          }
+          if (!metaPartials && Array.isArray(_paymentMeta.partialPayments)) {
+            metaPartials = _paymentMeta.partialPayments;
+          }
+        }
+        if (restCustomer.name !== undefined || restCustomer.phone !== undefined || restCustomer.address !== undefined) {
+          cleanCustomer = restCustomer;
+        }
+      }
+
+      return {
+        id: String(item.id),
+        code: item.code || `#${String(item.id).slice(-4)}`,
+        type: item.type || 'pdv',
+        status: item.status || 'confirmado',
+        createdAt: item.created_at || new Date().toISOString(),
+        customer: cleanCustomer,
+        tableNumber: item.table_number ? Number(item.table_number) : undefined,
+        comandaNumber: item.comanda_number || undefined,
+        items: safeParse(item.items, []),
+        subtotal: Number(item.subtotal) || 0,
+        discount: Number(item.discount) || 0,
+        deliveryFee: Number(item.delivery_fee) || 0,
+        total: Number(item.total) || 0,
+        paymentMethod: item.payment_method || 'dinheiro',
+        paymentStatus: item.payment_status || 'pago',
+        paidAmount: metaPaid,
+        remainingAmount: metaRemaining,
+        partialPayments: metaPartials,
+        notes: item.notes || undefined,
+        waiterName: item.waiter_name || undefined,
+        deliveryDriverName: item.delivery_driver_name || undefined,
+      };
+    });
   } catch {
     return null;
   }
@@ -295,13 +324,29 @@ export async function upsertOrderToSupabase(order: Order): Promise<boolean> {
   if (!supabase) return false;
 
   try {
+    const hasPartialMeta =
+      order.paidAmount !== undefined ||
+      order.remainingAmount !== undefined ||
+      (order.partialPayments && order.partialPayments.length > 0);
+
+    const serializedCustomer = hasPartialMeta
+      ? {
+          ...(order.customer || { name: 'Cliente Balcão', phone: '' }),
+          _paymentMeta: {
+            paidAmount: order.paidAmount,
+            remainingAmount: order.remainingAmount,
+            partialPayments: order.partialPayments || [],
+          },
+        }
+      : order.customer || null;
+
     const { error } = await supabase.from('orders').upsert({
       id: order.id,
       code: order.code,
       type: order.type,
       status: order.status,
       created_at: order.createdAt,
-      customer: order.customer || null,
+      customer: serializedCustomer,
       table_number: order.tableNumber || null,
       comanda_number: order.comandaNumber || null,
       items: order.items || [],
@@ -433,6 +478,8 @@ export async function syncComandasFromSupabase(): Promise<Comanda[] | null> {
       items: safeParse(item.items, []),
       createdAt: item.created_at || new Date().toISOString(),
       total: Number(item.total) || 0,
+      paidAmount: item.paid_amount !== undefined && item.paid_amount !== null ? Number(item.paid_amount) : undefined,
+      partialPayments: safeParse(item.partial_payments, undefined),
     }));
   } catch {
     return null;
@@ -444,19 +491,39 @@ export async function upsertComandaToSupabase(comanda: Comanda): Promise<boolean
   const supabase = getSupabase();
   if (!supabase) return false;
 
+  const basePayload = {
+    id: comanda.id,
+    code: comanda.code,
+    customer_name: comanda.customerName,
+    customer_phone: comanda.customerPhone || null,
+    table_number: comanda.tableNumber || null,
+    status: comanda.status,
+    items: comanda.items || [],
+    created_at: comanda.createdAt,
+    total: comanda.total,
+  };
+
   try {
-    const { error } = await supabase.from('comandas').upsert({
-      id: comanda.id,
-      code: comanda.code,
-      customer_name: comanda.customerName,
-      customer_phone: comanda.customerPhone || null,
-      table_number: comanda.tableNumber || null,
-      status: comanda.status,
-      items: comanda.items || [],
-      created_at: comanda.createdAt,
-      total: comanda.total,
-    });
+    const extendedPayload =
+      comanda.paidAmount !== undefined || (comanda.partialPayments && comanda.partialPayments.length > 0)
+        ? {
+            ...basePayload,
+            paid_amount: comanda.paidAmount || 0,
+            partial_payments: comanda.partialPayments || [],
+          }
+        : basePayload;
+
+    const { error } = await supabase.from('comandas').upsert(extendedPayload);
     if (error) {
+      if (
+        error.code === 'PGRST204' ||
+        error.code === '42703' ||
+        error.message?.includes('paid_amount') ||
+        error.message?.includes('partial_payments')
+      ) {
+        const { error: fallbackErr } = await supabase.from('comandas').upsert(basePayload);
+        return !fallbackErr;
+      }
       console.error('[Supabase Upsert Error - Comanda]:', error.message);
       return false;
     }

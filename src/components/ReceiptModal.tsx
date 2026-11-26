@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useApp } from '../context/AppContext';
 import { Printer, MessageCircle, X, Receipt, Zap, Copy } from 'lucide-react';
 import { generateOrderSummaryText, openWhatsAppLink } from '../utils/whatsappHelper';
+import { getOrderPaidAmount, getOrderRemainingAmount, formatPaymentMethodLabel } from '../utils/paymentHelper';
 
 export const ReceiptModal: React.FC = () => {
   const {
@@ -116,8 +117,34 @@ export const ReceiptModal: React.FC = () => {
           TOTAL: R$ {(ord.total || 0).toFixed(2).replace('.', ',')}
         </p>
         <p className="text-[10px] text-black font-bold uppercase mt-1">
-          FORMA PAGTO: {(ord.paymentMethod || 'dinheiro').replace('_', ' ').toUpperCase()} ({(ord.paymentStatus || 'pago').toUpperCase()})
+          FORMA PAGTO: {formatPaymentMethodLabel(ord.paymentMethod).toUpperCase()} ({ord.paymentStatus === 'pago' ? 'PAGO' : 'EM ABERTO'})
         </p>
+
+        {(ord.paymentMethod === 'parcial' || (ord.partialPayments && ord.partialPayments.length > 0) || getOrderRemainingAmount(ord) > 0) && (
+          <div className="mt-1.5 pt-1 border-t border-dashed border-black space-y-0.5 text-[10px] text-black">
+            {ord.partialPayments && ord.partialPayments.length > 0 && (
+              <div className="text-left space-y-0.5 mb-1">
+                <p className="font-extrabold text-black uppercase">PAGAMENTOS REALIZADOS:</p>
+                {ord.partialPayments.map((pp) => (
+                  <div key={pp.id} className="flex justify-between text-black">
+                    <span>- {formatPaymentMethodLabel(pp.method)}</span>
+                    <span>R$ {pp.amount.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-black font-extrabold">
+              VALOR PAGO: R$ {getOrderPaidAmount(ord).toFixed(2).replace('.', ',')}
+            </p>
+            {getOrderRemainingAmount(ord) > 0 ? (
+              <p className="text-xs font-black text-black border-t border-black pt-0.5">
+                RESTANTE EM ABERTO: R$ {getOrderRemainingAmount(ord).toFixed(2).replace('.', ',')}
+              </p>
+            ) : (
+              <p className="text-black font-extrabold">CONTA 100% QUITADA</p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="border-b border-dashed border-black my-2"></div>
